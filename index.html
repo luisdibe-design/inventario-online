@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
-<link rel="manifest" href="manifest.webmanifest?v=58">
+<link rel="manifest" href="manifest.webmanifest?v=65">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="64x64" href="favicon-64-v2.png">
 <link rel="apple-touch-icon" sizes="192x192" href="icon-192-v2.png">
@@ -304,7 +304,27 @@ async function getTransferClient(){
   }
   throw new Error(`La sesión de ${BASES[targetKey].name} no está disponible. Vuelve a iniciar sesión una sola vez en esa base para reactivarla.`);
 }
+function kitComponentConfig(product){
+  if(!product || typeof product!=='object') return null;
+  const vals=Object.values(product).filter(v=>v!==null && v!==undefined && ['string','number'].includes(typeof v));
+  const fields=[product.name,product.description,product.title,product.product_name,product.product_description,product.sku,product.barcode,...vals].map(v=>String(v??'').trim()).filter(Boolean);
+  const text=fields.join(' ');
+  const name=String(product.name||product.title||product.product_name||'').trim();
+  const sku=String(product.sku||'').trim();
+  const qty=text.match(/\bQTY\s*[:：]\s*([0-9]+(?:[.,][0-9]+)?)/i);
+  const component=text.match(/\bSKU\s*[:：]\s*([^\s,;]+)/i);
+  const kitWord=/\bkit\b/i.test(text) || /kit\s*\d+\s*piezas/i.test(text) || /\bkit[-_ ]*\d/i.test(name) || /\bkit[-_ ]*\d/i.test(sku);
+  if(!kitWord || !qty || !component) return null;
+  const quantityPerKit=Number(qty[1].replace(',','.'));
+  const componentSku=component[1].trim();
+  if(!Number.isFinite(quantityPerKit)||quantityPerKit<=0||!componentSku) return null;
+  return {quantityPerKit,componentSku};
+}
+function isConfiguredKit(product){return !!kitComponentConfig(product)}
+
 async function prepareInterbaseTransfer(product,qty,movementDate,orderRef,sourceSupplierName){
+  // Nunca transferir un Kit configurado entre bases; la base activa consume el componente.
+  if(isConfiguredKit(product)) return null;
   // Capturar la base de origen al comenzar para que un cambio de base durante la consulta no altere la contraparte.
   const sourceBaseKey=activeBaseKey;
   const sourceNorm=normalizePartyName(sourceSupplierName), targetKey=sourceBaseKey==='bikebeat'?'odkl':'bikebeat';
@@ -1315,7 +1335,7 @@ async function confirmQuantity(){
   const existing=pendingLines.find(x=>x.product.id===p.id),already=existing?.quantity||0;
   // Permitir capturar la cantidad solicitada aunque falte stock local; saveMoveBatch
   // transferirá primero el faltante desde la otra base o mostrará el motivo si no es posible.
-  if(moveContext.type==='salida' && Number(p.stock||0)<already+q && activeBaseKey==='bikebeat'){document.getElementById('qtyHelp').textContent='Stock de Bikebeat insuficiente; se verificará ODKL para transferir únicamente las piezas faltantes.';}
+  if(moveContext.type==='salida' && !isConfiguredKit(p) && Number(p.stock||0)<already+q && activeBaseKey==='bikebeat'){document.getElementById('qtyHelp').textContent='Stock de Bikebeat insuficiente; se verificará ODKL para transferir únicamente las piezas faltantes.';}
   if(existing)existing.quantity+=q;else pendingLines.push({product:p,quantity:q});
   // El botón Agregar también guarda inmediatamente el movimiento.
   // Así ya no existe un segundo botón de Guardar movimiento.
@@ -1369,6 +1389,8 @@ async function saveMoveBatch(){
     try{
       const counterpartSupplier=await getCounterpartSupplier();
       for(const line of pendingLines){
+        // Kits QTY/SKU se completan con su componente en la base activa; no transferir el Kit.
+        if(isConfiguredKit(line.product)) continue;
         const localStock=Number(line.product.stock||0);
         const shortage=Math.max(0,Number(line.quantity||0)-localStock);
         if(!shortage)continue;
@@ -1426,6 +1448,8 @@ async function saveMoveBatch(){
     try{
       const counterpartSupplier=await getCounterpartSupplier();
       for(const line of pendingLines){
+        // Kits QTY/SKU se completan con su componente en la base activa; no transferir el Kit.
+        if(isConfiguredKit(line.product)) continue;
         const localStock=Number(line.product.stock||0);
         const shortage=Math.max(0,Number(line.quantity||0)-localStock);
         if(!shortage)continue;
@@ -1472,6 +1496,7 @@ async function saveMoveBatch(){
   }
   if(moveContext.type==='salida'){
     for(const line of pendingLines){
+      if(isConfiguredKit(line.product)) continue;
       if(Number(line.product.stock||0)<line.quantity){
         for(const t of shortageTransfers){
           try{

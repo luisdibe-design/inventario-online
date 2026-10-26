@@ -74,21 +74,15 @@ function otherBaseKey(){return activeBaseKey==='bikebeat'?'odkl':'bikebeat'}
 function normalizePartyName(v){return String(v||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')}
 function kitComponentConfig(product){
   if(!product || typeof product!=='object') return null;
-  // Algunos resultados de búsqueda devuelven campos distintos según la pantalla.
-  // Reunimos todos los campos escalares además de los nombres conocidos para no perder QTY/SKU.
-  const values=Object.values(product).filter(v=>v!==null && v!==undefined && ['string','number'].includes(typeof v));
-  const fields=[
-    product.name, product.description, product.title, product.product_name,
-    product.product_description, product.sku, product.barcode, ...values
-  ].map(v=>String(v||'').trim()).filter(Boolean);
+  const vals=Object.values(product).filter(v=>v!==null && v!==undefined && ['string','number'].includes(typeof v));
+  const fields=[product.name,product.description,product.title,product.product_name,product.product_description,product.sku,product.barcode,...vals].map(v=>String(v??'').trim()).filter(Boolean);
   const text=fields.join(' ');
   const name=String(product.name||product.title||product.product_name||'').trim();
   const sku=String(product.sku||'').trim();
-  const hasKitWord=/\bkit\b/i.test(text) || /kit\s*\d+\s*piezas/i.test(text) ||
-    /\bkit[-_ ]*\d/i.test(name) || /\bkit[-_ ]*\d/i.test(sku);
-  const qty=text.match(/\bQTY\s*:\s*([0-9]+(?:[.,][0-9]+)?)/i);
-  const component=text.match(/\bSKU\s*:\s*([^\s,;]+)/i);
-  if(!hasKitWord || !qty || !component) return null;
+  const qty=text.match(/\bQTY\s*[:：]\s*([0-9]+(?:[.,][0-9]+)?)/i);
+  const component=text.match(/\bSKU\s*[:：]\s*([^\s,;]+)/i);
+  const kitWord=/\bkit\b/i.test(text) || /kit\s*\d+\s*piezas/i.test(text) || /\bkit[-_ ]*\d/i.test(name) || /\bkit[-_ ]*\d/i.test(sku);
+  if(!kitWord || !qty || !component) return null;
   const quantityPerKit=Number(qty[1].replace(',','.'));
   const componentSku=component[1].trim();
   if(!Number.isFinite(quantityPerKit)||quantityPerKit<=0||!componentSku) return null;
