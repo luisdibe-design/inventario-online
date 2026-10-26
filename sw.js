@@ -1,4 +1,4 @@
-const CACHE_NAME = "inventario-online-v62-kits-base-activa";
+const CACHE_NAME = "inventario-online-v463-kits-base-activa";
 const APP_SHELL = [
   "./",
   "./index.html",

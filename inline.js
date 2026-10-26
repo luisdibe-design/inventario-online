@@ -81,11 +81,11 @@ function kitComponentConfig(product){
   const text=fields.join(' ');
   const name=String(product.name||product.title||product.product_name||'').trim();
   const sku=String(product.sku||'').trim();
-  const isKit=/^kit(?:\\s|[-_0-9]|$)/i.test(name) || /^kit(?:\\s|[-_0-9]|$)/i.test(sku) || /\\bkit\\s+\\d+\\s+piezas?\\b/i.test(text);
-  if(!isKit) return null;
-  const qty=text.match(/\\bQTY\\s*:\\s*([0-9]+(?:[.,][0-9]+)?)/i);
-  const component=text.match(/\\bSKU\\s*:\\s*([^\\s,;]+)/i);
-  if(!qty||!component) return null;
+  // El nombre del Kit puede venir en name/title o en la descripción, y el SKU puede estar en otro campo.
+  const hasKitWord=/\bkit\b/i.test(text) || /\bkit[-_ ]*\d/i.test(name) || /\bkit[-_ ]*\d/i.test(sku);
+  const qty=text.match(/\bQTY\s*:\s*([0-9]+(?:[.,][0-9]+)?)/i);
+  const component=text.match(/\bSKU\s*:\s*([^\s,;]+)/i);
+  if(!hasKitWord || !qty || !component) return null;
   const quantityPerKit=Number(qty[1].replace(',','.'));
   const componentSku=component[1].trim();
   if(!Number.isFinite(quantityPerKit)||quantityPerKit<=0||!componentSku) return null;
@@ -105,6 +105,8 @@ async function getTransferClient(){
   throw new Error(`La sesión de ${BASES[targetKey].name} no está disponible. Vuelve a iniciar sesión una sola vez en esa base para reactivarla.`);
 }
 async function prepareInterbaseTransfer(product,qty,movementDate,orderRef,sourceSupplierName){
+  // Un Kit configurado se arma con componentes de la base activa; nunca buscar el Kit en la otra base.
+  if(isConfiguredKit(product)) return null;
   // Capturar la base de origen al comenzar para que un cambio de base durante la consulta no altere la contraparte.
   const sourceBaseKey=activeBaseKey;
   const sourceNorm=normalizePartyName(sourceSupplierName), targetKey=sourceBaseKey==='bikebeat'?'odkl':'bikebeat';
