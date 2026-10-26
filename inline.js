@@ -74,15 +74,18 @@ function otherBaseKey(){return activeBaseKey==='bikebeat'?'odkl':'bikebeat'}
 function normalizePartyName(v){return String(v||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')}
 function kitComponentConfig(product){
   if(!product || typeof product!=='object') return null;
+  // Algunos resultados de búsqueda devuelven campos distintos según la pantalla.
+  // Reunimos todos los campos escalares además de los nombres conocidos para no perder QTY/SKU.
+  const values=Object.values(product).filter(v=>v!==null && v!==undefined && ['string','number'].includes(typeof v));
   const fields=[
     product.name, product.description, product.title, product.product_name,
-    product.product_description, product.sku, product.barcode
-  ].map(v=>String(v||'')).filter(Boolean);
+    product.product_description, product.sku, product.barcode, ...values
+  ].map(v=>String(v||'').trim()).filter(Boolean);
   const text=fields.join(' ');
   const name=String(product.name||product.title||product.product_name||'').trim();
   const sku=String(product.sku||'').trim();
-  // El nombre del Kit puede venir en name/title o en la descripción, y el SKU puede estar en otro campo.
-  const hasKitWord=/\bkit\b/i.test(text) || /\bkit[-_ ]*\d/i.test(name) || /\bkit[-_ ]*\d/i.test(sku);
+  const hasKitWord=/\bkit\b/i.test(text) || /kit\s*\d+\s*piezas/i.test(text) ||
+    /\bkit[-_ ]*\d/i.test(name) || /\bkit[-_ ]*\d/i.test(sku);
   const qty=text.match(/\bQTY\s*:\s*([0-9]+(?:[.,][0-9]+)?)/i);
   const component=text.match(/\bSKU\s*:\s*([^\s,;]+)/i);
   if(!hasKitWord || !qty || !component) return null;
@@ -1055,8 +1058,9 @@ async function confirmQuantity(){
   const p=pendingConfirmProduct,q=Math.floor(Number(document.getElementById('confirmQty').value||0));
   if(q<1)return;
   const existing=pendingLines.find(x=>x.product.id===p.id),already=existing?.quantity||0;
-  if(moveContext.type==='salida' && Number(p.stock||0)<already+q){document.getElementById('qtyHelp').textContent=`Stock insuficiente en ${activeBaseName()}; se verificará ${BASES[otherBaseKey()].name} para transferir únicamente las piezas faltantes.`;}
-  if(moveContext.type==='salida' && Number(p.stock||0)<already+q && activeBaseKey==='bikebeat'){document.getElementById('qtyHelp').textContent='Stock de Bikebeat insuficiente; se verificará ODKL para transferir únicamente las piezas faltantes.';}
+  // Para Kits, la falta de stock del Kit se cubre con su componente en la base activa.
+  if(moveContext.type==='salida' && !isConfiguredKit(p) && Number(p.stock||0)<already+q){document.getElementById('qtyHelp').textContent=`Stock insuficiente en ${activeBaseName()}; se verificará ${BASES[otherBaseKey()].name} para transferir únicamente las piezas faltantes.`;}
+  if(moveContext.type==='salida' && !isConfiguredKit(p) && Number(p.stock||0)<already+q && activeBaseKey==='bikebeat'){document.getElementById('qtyHelp').textContent='Stock de Bikebeat insuficiente; se verificará ODKL para transferir únicamente las piezas faltantes.';}
   if(existing)existing.quantity+=q;else pendingLines.push({product:p,quantity:q});
   // El botón Agregar también guarda inmediatamente el movimiento.
   // Así ya no existe un segundo botón de Guardar movimiento.
@@ -1217,6 +1221,8 @@ async function saveMoveBatch(){
   }
   if(moveContext.type==='salida'){
     for(const line of pendingLines){
+      // El trigger de Supabase completa los Kits faltantes con su componente en esta base.
+      if(isConfiguredKit(line.product)) continue;
       if(Number(line.product.stock||0)<line.quantity){
         for(const t of shortageTransfers){
           try{
