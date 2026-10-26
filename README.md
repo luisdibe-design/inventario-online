@@ -85,3 +85,16 @@ Esta versión añade en el Dashboard un botón de administrador para consultar h
 - Si ODKL no tiene stock suficiente al registrar una salida, transfiere solo el faltante desde Bikebeat.
 - La transferencia registra salida en la base que aporta inventario y entrada en la base que recibe, con contraparte como cliente/proveedor, para consultar movimientos y reportes.
 - Este ZIP modifica el frontend; no actualiza automáticamente el sitio publicado ni modifica existencias hasta que se registre un movimiento.
+
+
+## v62 — Kits en base activa y salidas Mercado Libre Drop Off
+
+- `inline.js` detecta Kits con los marcadores `QTY:` y `SKU:` en nombre, descripción, título o SKU.
+- En salidas manuales, los Kits configurados no pasan por la transferencia automática entre Bikebeat y ODKL.
+- La salida del Kit debe completarse mediante el trigger de Supabase en la base activa: primero descuenta el stock disponible del Kit y consume del componente solo las piezas correspondientes a la cantidad faltante.
+- Se actualizó el nombre de caché del service worker a v62.
+- Se incluye `supabase_migration_v62_kits_base_activa.sql` para ejecutar por separado en Bikebeat y ODKL. La migración reemplaza la función del trigger, no borra movimientos ni actualiza stock por sí sola.
+- Mercado Libre Drop Off: el procesador de servidor `process_ml_outbound` vive en Supabase y no se publica con los archivos de Vercel. La función de Bikebeat ya calcula disponibilidad de Kits usando stock del Kit más unidades armables con el componente; el trigger de esta migración es el que realiza el consumo del componente cuando el procesador inserta la salida. No se debe afirmar que la lógica de servidor fue desplegada por subir este ZIP.
+- Después de desplegar y aplicar la migración, probar primero con una cantidad controlada y verificar los movimientos del Kit y componente antes de procesar pedidos reales.
+
+Despliegue: subir el contenido de `v27` a la raíz del proyecto Vercel. Ejecutar el SQL por separado en cada proyecto Supabase antes de probar Kits en esa base.

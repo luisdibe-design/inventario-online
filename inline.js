@@ -72,6 +72,27 @@ async function ensureOtherBaseSession(){
 function activeBaseName(){return BASES[activeBaseKey]?.name||activeBaseKey}
 function otherBaseKey(){return activeBaseKey==='bikebeat'?'odkl':'bikebeat'}
 function normalizePartyName(v){return String(v||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')}
+function kitComponentConfig(product){
+  if(!product || typeof product!=='object') return null;
+  const fields=[
+    product.name, product.description, product.title, product.product_name,
+    product.product_description, product.sku, product.barcode
+  ].map(v=>String(v||'')).filter(Boolean);
+  const text=fields.join(' ');
+  const name=String(product.name||product.title||product.product_name||'').trim();
+  const sku=String(product.sku||'').trim();
+  const isKit=/^kit(?:\\s|[-_0-9]|$)/i.test(name) || /^kit(?:\\s|[-_0-9]|$)/i.test(sku) || /\\bkit\\s+\\d+\\s+piezas?\\b/i.test(text);
+  if(!isKit) return null;
+  const qty=text.match(/\\bQTY\\s*:\\s*([0-9]+(?:[.,][0-9]+)?)/i);
+  const component=text.match(/\\bSKU\\s*:\\s*([^\\s,;]+)/i);
+  if(!qty||!component) return null;
+  const quantityPerKit=Number(qty[1].replace(',','.'));
+  const componentSku=component[1].trim();
+  if(!Number.isFinite(quantityPerKit)||quantityPerKit<=0||!componentSku) return null;
+  return {quantityPerKit,componentSku};
+}
+function isConfiguredKit(product){return !!kitComponentConfig(product)}
+
 async function getTransferClient(){
   const targetKey=otherBaseKey(), client=dbClients[targetKey];
   const existing=await client.auth.getSession();
@@ -1087,6 +1108,8 @@ async function saveMoveBatch(){
     try{
       const counterpartSupplier=await getCounterpartSupplier();
       for(const line of pendingLines){
+        // Los Kits se completan con su componente dentro de la base activa; nunca se transfieren entre Bikebeat y ODKL.
+        if(isConfiguredKit(line.product)) continue;
         const localStock=Number(line.product.stock||0);
         const shortage=Math.max(0,Number(line.quantity||0)-localStock);
         if(!shortage)continue;
@@ -1144,6 +1167,8 @@ async function saveMoveBatch(){
     try{
       const counterpartSupplier=await getCounterpartSupplier();
       for(const line of pendingLines){
+        // Los Kits se completan con su componente dentro de la base activa; nunca se transfieren entre Bikebeat y ODKL.
+        if(isConfiguredKit(line.product)) continue;
         const localStock=Number(line.product.stock||0);
         const shortage=Math.max(0,Number(line.quantity||0)-localStock);
         if(!shortage)continue;
