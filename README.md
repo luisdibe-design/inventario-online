@@ -121,3 +121,8 @@ Despliegue: subir el contenido de `v27` a la raíz del proyecto Vercel. Ejecutar
 - Si la vista aún no tiene precios recuperados para pedidos históricos, esos importes quedan en blanco y no se inventan.
 
 Despliegue: descomprime el ZIP y sube el contenido de `v27` a la raíz del mismo proyecto de Vercel. Esta publicación de frontend no cambia las Edge Functions ni la base de datos.
+
+
+## Corrección del reporte de ventas ML (v68)
+- Se corrigió el nombre del campo de moneda para consultar `currency_id`, que es el campo real expuesto por la vista `mercadolibre_bikebeat_delivered_sales`.
+- Se actualizó el identificador de caché para forzar la carga de los archivos nuevos.

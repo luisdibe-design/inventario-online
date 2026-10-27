@@ -1752,14 +1752,14 @@ async function report(){
     const endExclusive=new Date(range.to+'T00:00:00');
     endExclusive.setDate(endExclusive.getDate()+1);
     const endExclusiveISODate=`${endExclusive.getFullYear()}-${String(endExclusive.getMonth()+1).padStart(2,'0')}-${String(endExclusive.getDate()).padStart(2,'0')}`;
-    let q=supa.from('mercadolibre_bikebeat_delivered_sales').select('order_id,shipment_id,logistic_type,shipment_status,order_date,item_id,sku,barcode,description,quantity,unit_sale_price,line_total,currency,stock_action,outbound_movement_id');
+    let q=supa.from('mercadolibre_bikebeat_delivered_sales').select('order_id,shipment_id,logistic_type,shipment_status,order_date,item_id,sku,barcode,description,quantity,unit_sale_price,line_total,currency_id,stock_action,outbound_movement_id');
     q=q.gte('order_date',range.from+'T00:00:00').lt('order_date',endExclusiveISODate+'T00:00:00');
     const logistics=document.getElementById('mlReportLogistics').value;
     if(logistics)q=q.eq('logistic_type',logistics);
     const {data,error}=await q.order('order_date',{ascending:false}).limit(10000);
     if(error){msg.textContent='No se pudo consultar la vista de ventas de Mercado Libre: '+error.message;return}
     headers=['Fecha de pedido','Pedido ML','Envío','Logística','Estado de envío','SKU','Código de barras','Descripción del producto','Cantidad','Precio unitario de venta','Importe de línea','Moneda','Registro de inventario','ID movimiento de salida'];
-    rows=(data||[]).map(r=>[formatReportDate(r.order_date),r.order_id||'',r.shipment_id||'',r.logistic_type||'',r.shipment_status||'',r.sku||'',r.barcode||'',r.description||'',Number(r.quantity||0),r.unit_sale_price==null?'':Number(r.unit_sale_price),r.line_total==null?'':Number(r.line_total),r.currency||'',r.stock_action||'',r.outbound_movement_id||'']);
+    rows=(data||[]).map(r=>[formatReportDate(r.order_date),r.order_id||'',r.shipment_id||'',r.logistic_type||'',r.shipment_status||'',r.sku||'',r.barcode||'',r.description||'',Number(r.quantity||0),r.unit_sale_price==null?'':Number(r.unit_sale_price),r.line_total==null?'':Number(r.line_total),r.currency_id||'',r.stock_action||'',r.outbound_movement_id||'']);
   }else if(type==='out'||type==='in'){
     if(!range.from||!range.to){msg.textContent='Selecciona las fechas Desde y Hasta.';return}
     const dbType=type==='out'?'salida':'entrada';
