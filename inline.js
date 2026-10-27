@@ -1752,7 +1752,7 @@ async function report(){
     const endExclusive=new Date(range.to+'T00:00:00');
     endExclusive.setDate(endExclusive.getDate()+1);
     const endExclusiveISODate=`${endExclusive.getFullYear()}-${String(endExclusive.getMonth()+1).padStart(2,'0')}-${String(endExclusive.getDate()).padStart(2,'0')}`;
-    let q=supa.from('mercadolibre_bikebeat_delivered_sales').select('order_id,shipment_id,logistic_type,shipment_status,order_date,item_id,sku,barcode,description,quantity,unit_sale_price,line_total,currency_id,stock_action,outbound_movement_id');
+    let q=supa.from('mercadolibre_bikebeat_delivered_sales').select('order_id,shipment_id,logistic_type,shipment_status,order_date,ml_item_id,sku,barcode,description,quantity,unit_sale_price,line_total,currency_id,stock_action,outbound_movement_id');
     q=q.gte('order_date',range.from+'T00:00:00').lt('order_date',endExclusiveISODate+'T00:00:00');
     const logistics=document.getElementById('mlReportLogistics').value;
     if(logistics)q=q.eq('logistic_type',logistics);
