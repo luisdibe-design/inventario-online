@@ -1692,16 +1692,19 @@ let currentReportHeaders=[];
 function reportTypeChanged(){
   const type=document.getElementById('reportType').value;
   const isInventory=type==='inventory';
+  const isMlDelivered=type==='ml_delivered';
   document.getElementById('from').disabled=isInventory;
   document.getElementById('to').disabled=isInventory;
-  document.getElementById('reportMsg').textContent=isInventory?'Este reporte muestra el inventario actual; el periodo no aplica.':'';
+  document.getElementById('mlReportLogisticsWrap').classList.toggle('hidden',!isMlDelivered);
+  document.getElementById('mlReportNotice').classList.toggle('hidden',!isMlDelivered);
+  document.getElementById('reportMsg').textContent=isInventory?'Este reporte muestra el inventario actual; el periodo no aplica.':(isMlDelivered?'Reporte de ventas entregadas de Mercado Libre en Bikebeat.':'');
   currentReportRows=[];
   currentReportHeaders=[];
   document.getElementById('reportOut').innerHTML='';
   document.getElementById('exportExcelBtn').disabled=true;
   document.getElementById('exportPdfBtn').disabled=true;
 }
-function reportLabel(type){return ({inventory:'Inventario por producto',out:'Reporte de movimientos — salidas',in:'Reporte de movimientos — entradas',merma:'Reporte de mermas',good_return:'Reporte de devoluciones en buen estado'})[type]||'Reporte'}
+function reportLabel(type){return ({inventory:'Inventario por producto',out:'Reporte de movimientos — salidas',in:'Reporte de movimientos — entradas',merma:'Reporte de mermas',good_return:'Reporte de devoluciones en buen estado',ml_delivered:'Ventas Mercado Libre entregadas — Bikebeat'})[type]||'Reporte'}
 function reportDateRange(){return {from:document.getElementById('from').value,to:document.getElementById('to').value}}
 function formatReportDate(v){const s=String(v||'');if(!s)return '';const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1].slice(-2)}`:s}
 function setReportReady(rows,headers,title){currentReportRows=rows;currentReportHeaders=headers;currentReportTitle=title;document.getElementById('exportExcelBtn').disabled=!rows.length;document.getElementById('exportPdfBtn').disabled=!rows.length}
@@ -1743,6 +1746,20 @@ async function report(){
     if(error){msg.textContent='Error: '+error.message;return}
     headers=['SKU','Código de barras','Producto','Descripción','Unidad','Stock','Stock mínimo','Precio compra','Precio venta','Estado'];
     rows=(data||[]).map(p=>[p.sku||'',p.barcode||'',p.name||'',p.description||'',p.unit||'',Number(p.stock||0),Number(p.min_stock||0),Number(p.purchase_price||0),Number(p.sale_price||0),p.active?'Activo':'Inactivo']);
+  }else if(type==='ml_delivered'){
+    if(activeBaseKey!=='bikebeat'){msg.textContent='Este reporte está disponible en la base Bikebeat. Cambia a Bikebeat y vuelve a consultar.';return}
+    if(!range.from||!range.to){msg.textContent='Selecciona las fechas Desde y Hasta.';return}
+    const endExclusive=new Date(range.to+'T00:00:00');
+    endExclusive.setDate(endExclusive.getDate()+1);
+    const endExclusiveISODate=`${endExclusive.getFullYear()}-${String(endExclusive.getMonth()+1).padStart(2,'0')}-${String(endExclusive.getDate()).padStart(2,'0')}`;
+    let q=supa.from('mercadolibre_bikebeat_delivered_sales').select('order_id,shipment_id,logistic_type,shipment_status,order_date,item_id,sku,barcode,description,quantity,unit_sale_price,line_total,currency,stock_action,outbound_movement_id');
+    q=q.gte('order_date',range.from+'T00:00:00').lt('order_date',endExclusiveISODate+'T00:00:00');
+    const logistics=document.getElementById('mlReportLogistics').value;
+    if(logistics)q=q.eq('logistic_type',logistics);
+    const {data,error}=await q.order('order_date',{ascending:false}).limit(10000);
+    if(error){msg.textContent='No se pudo consultar la vista de ventas de Mercado Libre: '+error.message;return}
+    headers=['Fecha de pedido','Pedido ML','Envío','Logística','Estado de envío','SKU','Código de barras','Descripción del producto','Cantidad','Precio unitario de venta','Importe de línea','Moneda','Registro de inventario','ID movimiento de salida'];
+    rows=(data||[]).map(r=>[formatReportDate(r.order_date),r.order_id||'',r.shipment_id||'',r.logistic_type||'',r.shipment_status||'',r.sku||'',r.barcode||'',r.description||'',Number(r.quantity||0),r.unit_sale_price==null?'':Number(r.unit_sale_price),r.line_total==null?'':Number(r.line_total),r.currency||'',r.stock_action||'',r.outbound_movement_id||'']);
   }else if(type==='out'||type==='in'){
     if(!range.from||!range.to){msg.textContent='Selecciona las fechas Desde y Hasta.';return}
     const dbType=type==='out'?'salida':'entrada';

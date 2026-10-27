@@ -98,3 +98,26 @@ Esta versión añade en el Dashboard un botón de administrador para consultar h
 - Después de desplegar y aplicar la migración, probar primero con una cantidad controlada y verificar los movimientos del Kit y componente antes de procesar pedidos reales.
 
 Despliegue: subir el contenido de `v27` a la raíz del proyecto Vercel. Ejecutar el SQL por separado en cada proyecto Supabase antes de probar Kits en esa base.
+
+
+## v63 — Corrección de detección de Kits y exclusión de transferencia
+- Corrige las expresiones regulares JavaScript para detectar QTY y SKU sin doble escape.
+- Omite Kits configurados antes de preparar transferencias entre Bikebeat y ODKL.
+- Conserva el trigger SQL de consumo de componentes de v62; la migración debe seguir aplicada en ambas bases.
+
+
+## v64 — Kits en base activa
+- Detección de Kits ampliada a todos los campos escalares del producto para localizar QTY y SKU aunque cambie la forma del resultado.
+- La confirmación de cantidad no muestra advertencias de transferencia entre bases para Kits configurados.
+- La validación final de stock de salida deja que el trigger de Supabase complete el faltante del Kit con el componente en la base activa.
+- Caché del service worker actualizada a inventario-online-v464.
+
+
+## v67 — Reporte de ventas entregadas de Mercado Libre
+- Se añadió en Reportes el tipo “Mercado Libre — ventas entregadas (Bikebeat)”.
+- Permite filtrar por fecha y logística (Full, Drop Off o ambas) y exportar a Excel o PDF con los controles existentes.
+- Incluye pedido, envío, fecha, logística, SKU, código de barras, descripción, cantidad, precio unitario, importe de línea, moneda y referencia al movimiento de inventario.
+- Consulta en solo lectura la vista `mercadolibre_bikebeat_delivered_sales`; solo está disponible al seleccionar la base Bikebeat. No registra movimientos ni cambia existencias.
+- Si la vista aún no tiene precios recuperados para pedidos históricos, esos importes quedan en blanco y no se inventan.
+
+Despliegue: descomprime el ZIP y sube el contenido de `v27` a la raíz del mismo proyecto de Vercel. Esta publicación de frontend no cambia las Edge Functions ni la base de datos.

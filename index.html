@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
-<link rel="manifest" href="manifest.webmanifest?v=65">
+<link rel="manifest" href="manifest.webmanifest?v=67">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="64x64" href="favicon-64-v2.png">
 <link rel="apple-touch-icon" sizes="192x192" href="icon-192-v2.png">
@@ -173,10 +173,13 @@
     <option value="in">Movimientos — entradas</option>
     <option value="merma">Mermas</option>
     <option value="good_return">Devoluciones en buen estado</option>
+    <option value="ml_delivered">Mercado Libre — ventas entregadas (Bikebeat)</option>
   </select></label>
   <label style="flex:1;min-width:160px">Desde<input id="from" type="date"></label>
   <label style="flex:1;min-width:160px">Hasta<input id="to" type="date"></label>
+  <label id="mlReportLogisticsWrap" class="hidden" style="flex:1;min-width:180px">Logística<select id="mlReportLogistics"><option value="">Todas (Full + Drop Off)</option><option value="fulfillment">Full</option><option value="xd_drop_off">Drop Off</option><option value="drop_off">Drop Off (tipo alternativo)</option></select></label>
 </div>
+<div id="mlReportNotice" class="status hidden">Este reporte consulta únicamente pedidos de Mercado Libre entregados en la base Bikebeat. No incluye cancelados, devoluciones ni pedidos en tránsito. Si faltan precios en la vista de Supabase, se mostrarán en blanco, no como $0.</div>
 <div class="row" style="margin-top:10px">
   <button onclick="report()">Consultar reporte</button>
   <button id="exportExcelBtn" class="ghost" onclick="exportReportExcel()" disabled>⬇ Excel</button>

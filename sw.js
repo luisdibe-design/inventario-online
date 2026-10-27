@@ -1,8 +1,8 @@
-const CACHE_NAME = "inventario-online-v466-ocultar-referencia-ml";
+const CACHE_NAME = "inventario-online-v467-reporte-ventas-ml";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./manifest.webmanifest?v=66",
+  "./manifest.webmanifest?v=67",
   "./icon-192-v2.png",
   "./icon-512-v2.png",
   "./favicon-64-v2.png",
