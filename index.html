@@ -78,7 +78,7 @@
 
 </style>
 </head>
-<body data-report-build="47"><div class="wrap">
+<body data-report-build="72"><div class="wrap">
 <div id="login" class="login card"><img class="login-logo" src="logo_blanco.png" alt="Logo"><h1>Inventario Online</h1><p class="muted">Selecciona la base solo para el primer acceso. Después podrás cambiar de base sin volver a iniciar sesión.</p><label style="display:block;text-align:left;margin-top:10px"><span class="muted">Base de datos</span><select id="baseSelect" onchange="selectBaseFromLogin()" style="width:100%;margin-top:4px"><option value="bikebeat">Bikebeat</option><option value="odkl">ODKL</option></select></label><input id="email" type="email" placeholder="Correo" autocomplete="username" required style="width:100%;margin:5px 0"><input id="password" type="password" placeholder="Contraseña" autocomplete="current-password" required style="width:100%;margin:5px 0"><button onclick="login()" style="width:100%;margin-top:8px">Entrar</button><button class="ghost" onclick="showResetScreen()" style="width:100%;margin-top:8px">Restablecer contraseña</button><div id="loginMsg"></div></div>
 <div id="resetScreen" class="login card hidden"><img class="login-logo" src="logo_blanco.png" alt="Logo"><h1>Restablecer contraseña</h1><p class="muted">Escribe el correo registrado en esta base. Te enviaremos un enlace para recuperar el acceso.</p><label for="resetEmail" style="display:block;text-align:left;margin-top:12px">Correo registrado</label><input id="resetEmail" type="email" placeholder="correo@ejemplo.com" autocomplete="email" required style="width:100%;margin:5px 0"><button onclick="resetPassword()" style="width:100%;margin-top:8px">Enviar enlace de recuperación</button><button class="ghost" onclick="backToLogin()" style="width:100%;margin-top:8px">← Regresar al inicio de sesión</button><div id="resetMsg" class="status" aria-live="polite"></div></div>
 <div id="app" class="hidden">
@@ -1955,9 +1955,12 @@ let currentReportHeaders=[];
 function reportTypeChanged(){
   const type=document.getElementById('reportType').value;
   const isInventory=type==='inventory';
+  const isMlDelivered=type==='ml_delivered';
   document.getElementById('from').disabled=isInventory;
   document.getElementById('to').disabled=isInventory;
-  document.getElementById('reportMsg').textContent=isInventory?'Este reporte muestra el inventario actual; el periodo no aplica.':'';
+  document.getElementById('mlReportLogisticsWrap').classList.toggle('hidden',!isMlDelivered);
+  document.getElementById('mlReportNotice').classList.toggle('hidden',!isMlDelivered);
+  document.getElementById('reportMsg').textContent=isInventory?'Este reporte muestra el inventario actual; el periodo no aplica.':(isMlDelivered?'Reporte de ventas entregadas de Mercado Libre en Bikebeat.':'');
   currentReportRows=[];
   currentReportHeaders=[];
   document.getElementById('reportOut').innerHTML='';
@@ -2006,10 +2009,24 @@ async function report(){
     if(error){msg.textContent='Error: '+error.message;return}
     headers=['SKU','Código de barras','Producto','Descripción','Unidad','Stock','Stock mínimo','Precio compra','Precio venta','Estado'];
     rows=(data||[]).map(p=>[p.sku||'',p.barcode||'',p.name||'',p.description||'',p.unit||'',Number(p.stock||0),Number(p.min_stock||0),Number(p.purchase_price||0),Number(p.sale_price||0),p.active?'Activo':'Inactivo']);
+  }else if(type==='ml_delivered'){
+    if(activeBaseKey!=='bikebeat'){msg.textContent='Este reporte está disponible en la base Bikebeat. Cambia a Bikebeat y vuelve a consultar.';return}
+    if(!range.from||!range.to){msg.textContent='Selecciona las fechas Desde y Hasta.';return}
+    const endExclusive=new Date(range.to+'T00:00:00');
+    endExclusive.setDate(endExclusive.getDate()+1);
+    const endExclusiveISODate=`${endExclusive.getFullYear()}-${String(endExclusive.getMonth()+1).padStart(2,'0')}-${String(endExclusive.getDate()).padStart(2,'0')}`;
+    let q=supa.from('mercadolibre_bikebeat_delivered_sales').select('order_id,shipment_id,logistic_type,shipment_status,order_date,ml_item_id,sku,barcode,description,quantity,unit_sale_price,line_total,currency_id,stock_action,outbound_movement_id');
+    q=q.gte('order_date',range.from+'T00:00:00').lt('order_date',endExclusiveISODate+'T00:00:00');
+    const logistics=document.getElementById('mlReportLogistics').value;
+    if(logistics)q=q.eq('logistic_type',logistics);
+    const {data,error}=await q.order('order_date',{ascending:false}).limit(10000);
+    if(error){msg.textContent='No se pudo consultar la vista de ventas de Mercado Libre: '+error.message;return}
+    headers=['Fecha de pedido','Pedido ML','Envío','Logística','Estado de envío','SKU','Código de barras','Descripción del producto','Cantidad','Precio unitario de venta','Importe de línea','Moneda','Registro de inventario','ID movimiento de salida'];
+    rows=(data||[]).map(r=>[formatReportDate(r.order_date),r.order_id||'',r.shipment_id||'',r.logistic_type||'',r.shipment_status||'',r.sku||'',r.barcode||'',r.description||'',Number(r.quantity||0),r.unit_sale_price==null?'':Number(r.unit_sale_price),r.line_total==null?'':Number(r.line_total),r.currency_id||'',r.stock_action||'',r.outbound_movement_id||'']);
   }else if(type==='out'||type==='in'){
     if(!range.from||!range.to){msg.textContent='Selecciona las fechas Desde y Hasta.';return}
     const dbType=type==='out'?'salida':'entrada';
-    // Rango semiabierto para incluir todas las horas del día Hasta.
+    // Usar un rango semiabierto: incluye todo el día final, aunque movement_date tenga hora.
     const endExclusive=new Date(range.to+'T00:00:00');
     endExclusive.setDate(endExclusive.getDate()+1);
     const endExclusiveISODate=`${endExclusive.getFullYear()}-${String(endExclusive.getMonth()+1).padStart(2,'0')}-${String(endExclusive.getDate()).padStart(2,'0')}`;
