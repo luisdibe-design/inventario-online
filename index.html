@@ -872,45 +872,55 @@ async function saveProduct(id){
   const oldSku=String(current.sku||'').trim(), oldBarcode=String(current.barcode||'').trim();
   if(payload.barcode){const {data:dupBarcode,error:barcodeErr}=await supa.from('products').select('id').eq('barcode',payload.barcode).neq('id',id).limit(1).maybeSingle();if(barcodeErr)return msg.textContent='No se pudo validar el código de barras: '+barcodeErr.message;if(dupBarcode)return msg.textContent='Código de barras ya existe.';}
   const skuChanged=payload.sku!==oldSku;
+  // Regla explícita: solo Bikebeat valida y sincroniza el SKU equivalente en ODKL.
+  // En ODKL, el SKU se guarda exclusivamente en ODKL; jamás se consulta Bikebeat.
+  const editingBaseKey=String(activeBaseKey||localStorage.getItem('inventarioBase')||'bikebeat').toLowerCase();
+  const syncSkuAcrossBases=skuChanged && editingBaseKey==='bikebeat';
   let counterpart=null,targetClient=null,targetKey=null,counterpartOldSku='';
-  if(skuChanged){
-    msg.textContent='Validando SKU en '+BASES[otherBaseKey()].name+'…';
+  if(syncSkuAcrossBases){
+    msg.textContent='Validando SKU equivalente en ODKL…';
     try{
       const other=await getTransferClient();targetClient=other.client;targetKey=other.targetKey;
       if(oldBarcode){
         const r=await targetClient.from('products').select('id,sku,barcode,name').eq('barcode',oldBarcode).limit(2);
-        if(r.error)throw new Error('No se pudo consultar '+BASES[targetKey].name+': '+r.error.message);
-        if((r.data||[]).length>1)throw new Error('Hay más de un producto con ese código de barras en '+BASES[targetKey].name+'. No se cambió ningún SKU.');
+        if(r.error)throw new Error('No se pudo consultar ODKL: '+r.error.message);
+        if((r.data||[]).length>1)throw new Error('Hay más de un producto con ese código de barras en ODKL. No se cambió ningún SKU.');
         counterpart=(r.data||[])[0]||null;
       }
       if(!counterpart&&oldSku){
         const r=await targetClient.from('products').select('id,sku,barcode,name').eq('sku',oldSku).limit(2);
-        if(r.error)throw new Error('No se pudo consultar '+BASES[targetKey].name+': '+r.error.message);
-        if((r.data||[]).length>1)throw new Error('El SKU anterior no identifica un único producto en '+BASES[targetKey].name+'. No se cambió ningún SKU.');
+        if(r.error)throw new Error('No se pudo consultar ODKL: '+r.error.message);
+        if((r.data||[]).length>1)throw new Error('El SKU anterior no identifica un único producto en ODKL. No se cambió ningún SKU.');
         counterpart=(r.data||[])[0]||null;
       }
-      if(!counterpart)throw new Error('No encontré el mismo producto en '+BASES[targetKey].name+' usando el código de barras o el SKU anterior ('+(oldSku||'vacío')+'). No se cambió ningún SKU.');
+      if(!counterpart)throw new Error('No encontré el producto equivalente en ODKL por código de barras o SKU anterior ('+(oldSku||'vacío')+'). No se cambió el SKU en Bikebeat.');
       counterpartOldSku=String(counterpart.sku||'');
       const {data:localDup,error:localDupErr}=await supa.from('products').select('id').eq('sku',payload.sku).neq('id',id).limit(1).maybeSingle();
-      if(localDupErr)throw new Error('No se pudo validar el SKU en '+BASES[activeBaseKey].name+': '+localDupErr.message);
-      if(localDup)throw new Error('Ese SKU ya existe en '+BASES[activeBaseKey].name+' para otro producto. No se realizó ningún cambio.');
+      if(localDupErr)throw new Error('No se pudo validar el SKU en Bikebeat: '+localDupErr.message);
+      if(localDup)throw new Error('Ese SKU ya existe en Bikebeat para otro producto. No se realizó ningún cambio.');
       const {data:targetDup,error:targetDupErr}=await targetClient.from('products').select('id').eq('sku',payload.sku).neq('id',counterpart.id).limit(1).maybeSingle();
-      if(targetDupErr)throw new Error('No se pudo validar el SKU en '+BASES[targetKey].name+': '+targetDupErr.message);
-      if(targetDup)throw new Error('Ese SKU ya existe en '+BASES[targetKey].name+' para otro producto. No se realizó ningún cambio.');
+      if(targetDupErr)throw new Error('No se pudo validar el SKU en ODKL: '+targetDupErr.message);
+      if(targetDup)throw new Error('Ese SKU ya existe en ODKL para otro producto. No se realizó ningún cambio.');
     }catch(e){msg.textContent=e?.message||String(e);return;}
+  }else if(skuChanged && editingBaseKey==='odkl'){
+    // ODKL: comprobar duplicado únicamente dentro de ODKL, sin ninguna llamada a Bikebeat.
+    const {data:localDup,error:localDupErr}=await supa.from('products').select('id').eq('sku',payload.sku).neq('id',id).limit(1).maybeSingle();
+    if(localDupErr)return msg.textContent='No se pudo validar el SKU en ODKL: '+localDupErr.message;
+    if(localDup)return msg.textContent='Ese SKU ya existe en ODKL para otro producto.';
   }
-  msg.textContent='Guardando…';
-  if(skuChanged){
+  msg.textContent='Guardando en '+(editingBaseKey==='odkl'?'ODKL':'Bikebeat')+'…';
+  if(syncSkuAcrossBases){
     const {error:targetErr}=await targetClient.from('products').update({sku:payload.sku}).eq('id',counterpart.id);
-    if(targetErr){msg.textContent=targetErr.code==='23505'?'Ese SKU ya existe en '+BASES[targetKey].name+'. No se cambió ningún SKU.':'No se pudo actualizar el SKU en '+BASES[targetKey].name+': '+targetErr.message;return;}
+    if(targetErr){msg.textContent=targetErr.code==='23505'?'Ese SKU ya existe en ODKL. No se cambió ningún SKU.':'No se pudo actualizar el SKU equivalente en ODKL: '+targetErr.message;return;}
   }
   const {error}=await supa.from('products').update(payload).eq('id',id);
   if(error){
-    if(skuChanged){const {error:rollbackErr}=await targetClient.from('products').update({sku:counterpartOldSku}).eq('id',counterpart.id);if(rollbackErr){msg.textContent='Falló el guardado en '+BASES[activeBaseKey].name+' y también la reversión en '+BASES[targetKey].name+'. Revisa ambos productos. Error: '+error.message+' · Reversión: '+rollbackErr.message;return;}}
-    msg.textContent=error.code==='23505'?'Ese SKU o código ya existe en esta base. No se conservó el cambio en la otra base.':'No se pudo guardar: '+error.message;return;
+    if(syncSkuAcrossBases){const {error:rollbackErr}=await targetClient.from('products').update({sku:counterpartOldSku}).eq('id',counterpart.id);if(rollbackErr){msg.textContent='Falló el guardado en Bikebeat y también la reversión del SKU en ODKL. Revisa ambos productos. Error: '+error.message+' · Reversión: '+rollbackErr.message;return;}}
+    msg.textContent=error.code==='23505'?'Ese SKU o código ya existe en esta base.':'No se pudo guardar: '+error.message;return;
   }
-  msg.textContent=skuChanged?'SKU actualizado en '+BASES[activeBaseKey].name+' y '+BASES[targetKey].name+'. Los demás cambios se guardaron correctamente.':'Guardado correctamente.';
-  await new Promise(resolve=>setTimeout(resolve,3000));
+  skuInput.dataset.originalSku=payload.sku;skuInput.dataset.originalBarcode=payload.barcode||'';
+  msg.textContent=syncSkuAcrossBases?'SKU actualizado en Bikebeat y ODKL. Los demás cambios se guardaron correctamente.':(skuChanged&&editingBaseKey==='odkl'?'SKU actualizado únicamente en ODKL. No se consultó ni modificó Bikebeat.':'Guardado correctamente.');
+  await new Promise(resolve=>setTimeout(resolve,1500));
   await loadProducts();if(!document.getElementById('dashboard')?.classList.contains('hidden'))await dash();
 }
 function escJs(v){return String(v??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")}

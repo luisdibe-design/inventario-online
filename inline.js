@@ -1,8 +1,4 @@
 
-
-
-
-
 let supa=null, user=null, profile=null, loginPassword='';
 const BASES={
   bikebeat:{name:'Bikebeat',url:'https://iavhoqezxcfdefbyspmq.supabase.co',key:'sb_publishable_qrChonfNK50DrDCisAOcYw_AXAkfbVU'},
@@ -72,6 +68,17 @@ async function ensureOtherBaseSession(){
 function activeBaseName(){return BASES[activeBaseKey]?.name||activeBaseKey}
 function otherBaseKey(){return activeBaseKey==='bikebeat'?'odkl':'bikebeat'}
 function normalizePartyName(v){return String(v||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')}
+async function getTransferClient(){
+  const targetKey=otherBaseKey(), client=dbClients[targetKey];
+  const existing=await client.auth.getSession();
+  if(existing.data?.session?.user)return {client,targetKey,session:existing.data.session};
+  const email=user?.email||document.getElementById('email')?.value.trim();
+  if(email&&loginPassword){
+    const r=await client.auth.signInWithPassword({email,password:loginPassword});
+    if(!r.error&&r.data?.session)return {client,targetKey,session:r.data.session};
+  }
+  throw new Error(`La sesión de ${BASES[targetKey].name} no está disponible. Vuelve a iniciar sesión una sola vez en esa base para reactivarla.`);
+}
 function kitComponentConfig(product){
   if(!product || typeof product!=='object') return null;
   const vals=Object.values(product).filter(v=>v!==null && v!==undefined && ['string','number'].includes(typeof v));
@@ -90,19 +97,8 @@ function kitComponentConfig(product){
 }
 function isConfiguredKit(product){return !!kitComponentConfig(product)}
 
-async function getTransferClient(){
-  const targetKey=otherBaseKey(), client=dbClients[targetKey];
-  const existing=await client.auth.getSession();
-  if(existing.data?.session?.user)return {client,targetKey,session:existing.data.session};
-  const email=user?.email||document.getElementById('email')?.value.trim();
-  if(email&&loginPassword){
-    const r=await client.auth.signInWithPassword({email,password:loginPassword});
-    if(!r.error&&r.data?.session)return {client,targetKey,session:r.data.session};
-  }
-  throw new Error(`La sesión de ${BASES[targetKey].name} no está disponible. Vuelve a iniciar sesión una sola vez en esa base para reactivarla.`);
-}
 async function prepareInterbaseTransfer(product,qty,movementDate,orderRef,sourceSupplierName){
-  // Un Kit configurado se arma con componentes de la base activa; nunca buscar el Kit en la otra base.
+  // Nunca transferir un Kit configurado entre bases; la base activa consume el componente.
   if(isConfiguredKit(product)) return null;
   // Capturar la base de origen al comenzar para que un cambio de base durante la consulta no altere la contraparte.
   const sourceBaseKey=activeBaseKey;
@@ -142,7 +138,7 @@ async function applyInterbaseTransfer(transfer,qty,movementDate,orderRef){
 
 function localDate(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function dateFolioPrefix(dateStr){const parts=String(dateStr||localDate()).split('-');if(parts.length===3)return `${parts[2]}${parts[1]}${parts[0].slice(-2)}`;const d=new Date(dateStr||Date.now());return `${String(d.getDate()).padStart(2,'0')}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getFullYear()).slice(-2)}`}
-function canTab(id){const r=profile?.role||'consulta';if(id==='dashboard')return true;if(id==='users')return r==='admin';if(id==='suppliers')return r==='admin'||r==='almacen';if(id==='move')return r==='admin'||r==='almacen'||r==='ventas';if(id==='returns')return r==='admin'||r==='almacen';if(id==='products')return true;if(id==='reports')return true;return false}
+function canTab(id){const r=profile?.role||'consulta';if(id==='dashboard')return true;if(id==='mlListings')return r==='admin';if(id==='users')return r==='admin';if(id==='suppliers')return r==='admin'||r==='almacen';if(id==='move')return r==='admin'||r==='almacen'||r==='ventas';if(id==='returns')return r==='admin'||r==='almacen';if(id==='products')return true;if(id==='reports')return true;return false}
 function isAdminSession(){return profile?.role==='admin'}
 function moneyMX(v){return '$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}
 async function calculateInventorySaleValue(){
@@ -160,7 +156,7 @@ async function calculateInventorySaleValue(){
 function updateBaseLabels(){const name=activeBaseName();document.querySelectorAll('[data-base-label]').forEach(el=>{el.textContent='Base '+name});const bb=document.getElementById('baseBadge');if(bb)bb.textContent='Base '+name+' · Cambiar base'}
 function applyPermissions(){const r=profile?.role||'consulta';document.querySelectorAll('[data-role-tab]').forEach(b=>b.classList.toggle('hidden',!canTab(b.dataset.roleTab)));document.querySelectorAll('.admin-only').forEach(el=>el.classList.toggle('hidden',r!=='admin'));document.querySelectorAll('.admin-only-section').forEach(el=>el.classList.toggle('hidden',r!=='admin'));document.querySelectorAll('.warehouse-edit').forEach(el=>el.classList.toggle('hidden',!(r==='admin'||r==='almacen')));document.getElementById('who').textContent=(user?.email||'')+' · '+({admin:'Administrador',almacen:'Almacén',ventas:'Ventas',consulta:'Consulta'}[r]||r);updateBaseLabels()}
 function escapeMLHtml(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
-document.addEventListener('DOMContentLoaded',()=>{const to=document.getElementById('mlHistTo'),from=document.getElementById('mlHistFrom');const now=new Date(),start=new Date(now);start.setDate(start.getDate()-30);if(to&&!to.value)to.value=mlHistLocalDate(now);if(from&&!from.value)from.value=mlHistLocalDate(start)});
+document.addEventListener('DOMContentLoaded',()=>{const to=document.getElementById('mlHistTo'),from=document.getElementById('mlHistFrom');const today=mlHistLocalDate(new Date());if(to)to.value=today;if(from)from.value=today});
 function mlHistLocalDate(date){const y=date.getFullYear(),m=String(date.getMonth()+1).padStart(2,'0'),d=String(date.getDate()).padStart(2,'0');return `${y}-${m}-${d}`}
 function mlHistItemSummary(value){
   const items=Array.isArray(value)?value:(value&&typeof value==='object'?(Array.isArray(value.items)?value.items:[value]):[]);
@@ -176,12 +172,30 @@ function mlHistItemSummary(value){
 }
 function mlHistPill(text){return `<span class="ml-status-pill">${escapeMLHtml(text||'—')}</span>`}
 async function syncMercadoLibreDropoffHistory(){
-  // Guard rail: this UI action must never invoke the real notification processor.
+  const btn=document.getElementById('mlHistSyncBtn');
   const status=document.getElementById('mlHistStatusMsg');
-  status.textContent='Esta sección es de solo lectura. No se ejecutan sincronizaciones ni reprocesos desde aquí.';
-  await loadMercadoLibreDropoffHistory();
+  const out=document.getElementById('mlHistResults');
+  if(!isAdminSession()){status.textContent='Solo un administrador puede sincronizar pedidos.';return}
+  if(activeBaseKey!=='bikebeat'){status.textContent='Cambia a la base Bikebeat para sincronizar pedidos Drop Off.';return}
+  if(!confirm('Se consultarán pedidos recientes de Mercado Libre y se actualizará la revisión. Esta versión del procesador está en modo de simulación y no garantiza descuentos de inventario. ¿Continuar?'))return;
+  btn.disabled=true;
+  const oldText=btn.textContent; btn.textContent='Sincronizando…';
+  status.textContent='Consultando pedidos recientes y procesando notificaciones pendientes…';
+  out.innerHTML='';
+  try{
+    const {data,error}=await supa.functions.invoke('mercadolibre-notification-processor',{body:{}});
+    if(error)throw error;
+    if(!data||data.ok!==true)throw new Error(data?.error||'El procesador no devolvió una confirmación válida.');
+    const diag=data.sync_diagnostic||{};
+    const apiErr=Array.isArray(diag.api_errors)&&diag.api_errors.length?(' Errores API: '+diag.api_errors.join(' | ')):'';
+    status.textContent=`Sincronización terminada. API: ${diag.api_orders_found??0} pedidos recientes consultados; ${diag.queued_new_or_updated??0} nuevos/actualizados en cola; ${data.processed??0} notificaciones procesadas. Modo: ${data.mode||'sin dato'}. El procesador actual no confirma descuentos reales.${apiErr}`;
+    await loadMercadoLibreDropoffHistory();
+  }catch(e){
+    console.error('Drop Off history sync failed',e);
+    status.textContent='No se pudo sincronizar: '+(e?.message||String(e));
+    out.innerHTML=`<div class="card" style="padding:10px"><strong>Falló la sincronización</strong><p>${escapeMLHtml(e?.message||String(e))}</p><p class="muted">No se debe asumir que se guardaron los pedidos ni que se descontó inventario.</p></div>`;
+  }finally{btn.disabled=false;btn.textContent=oldText}
 }
-
 async function loadMercadoLibreDropoffHistory(){
   const btn=document.getElementById('mlHistLoadBtn'),status=document.getElementById('mlHistStatusMsg'),out=document.getElementById('mlHistResults'),metrics=document.getElementById('mlHistMetrics');
   if(!isAdminSession()){status.textContent='Solo un administrador puede consultar este historial.';return}
@@ -192,9 +206,21 @@ async function loadMercadoLibreDropoffHistory(){
   try{
     let q=supa.from('mercadolibre_bikebeat_dropoff_history').select('base_key,seller_id,order_id,order_status,shipment_id,pack_id,logistic_type,shipment_status,stock_action,outbound_movement_id,reversal_movement_id,cancellation_confirmed_at,warehouse_return_confirmed_at,notes,raw_status,last_checked_at,created_at,updated_at,inventory_result,error_reason,order_date,items_detail').order('updated_at',{ascending:false}).limit(1000);
     const {data,error}=await q;if(error)throw error;
+    const normalizeMLResult=value=>String(value||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/\\s+/g,' ').trim();
+    const resultAliases={
+      'Descuento registrado':['descuento registrado','outbound_recorded','stock descontado','salida registrada'],
+      'Pendiente de descuento':['pendiente de descuento','outbound_pending','pending','pendiente'],
+      'Requiere revisión manual':['requiere revision manual','manual_review','review','revision manual'],
+      'Cancelado sin descuento':['cancelado sin descuento','cancelled_no_stock_change','canceled_no_stock_change'],
+      'Cancelado: revisar devolución de stock':['cancelado: revisar devolucion de stock','cancelled_review_return','canceled_review_return'],
+      'Sin cambio de inventario':['sin cambio de inventario','no_stock_change','sin cambio'],
+      'Full excluido':['full excluido','full_excluded','excluded_full']
+    };
     const rows=(data||[]).filter(r=>{
       const rawDate=r.order_date||r.created_at||r.updated_at||'';const date=String(rawDate).slice(0,10);
-      return (!from||(date&&date>=from))&&(!to||(date&&date<=to))&&(!filter||r.inventory_result===filter);
+      const normalized=normalizeMLResult(r.inventory_result);
+      const allowed=filter?(resultAliases[filter]||[filter]).map(normalizeMLResult):[];
+      return (!from||(date&&date>=from))&&(!to||(date&&date<=to))&&(!filter||allowed.includes(normalized));
     });
     const all=data||[];
     const counts=[['Pedidos encontrados',rows.length],['Descuento registrado',rows.filter(r=>r.inventory_result==='Descuento registrado').length],['Pendientes',rows.filter(r=>r.inventory_result==='Pendiente de descuento').length],['Revisión manual',rows.filter(r=>r.inventory_result==='Requiere revisión manual').length],['Cancelados sin descuento',rows.filter(r=>r.inventory_result==='Cancelado sin descuento').length],['Revisar devolución',rows.filter(r=>r.inventory_result==='Cancelado: revisar devolución de stock').length]];
@@ -203,10 +229,15 @@ async function loadMercadoLibreDropoffHistory(){
     const tableRows=rows.map((r,i)=>{
       const rawDate=r.order_date||r.created_at||r.updated_at||'';
       const items=mlHistItemSummary(r.items_detail);
-      const err=r.error_reason||((r.stock_action==='manual_review'||r.stock_action==='review'||r.stock_action==='outbound_pending')?r.notes:'')||'—';
-      const detail={order_id:r.order_id,pack_id:r.pack_id,shipment_id:r.shipment_id,order_status:r.order_status,logistic_type:r.logistic_type,shipment_status:r.shipment_status,stock_action:r.stock_action,inventory_result:r.inventory_result,outbound_movement_id:r.outbound_movement_id,reversal_movement_id:r.reversal_movement_id,cancellation_confirmed_at:r.cancellation_confirmed_at,warehouse_return_confirmed_at:r.warehouse_return_confirmed_at,items_detail:r.items_detail,raw_status:r.raw_status,notes:r.notes};
+      const raw=r.raw_status||{};
+      const identifiers=raw.order_identifier_diagnostics||{};
+      const related=Array.isArray(raw.related_orders)?raw.related_orders:[];
+      const relatedPack=related.find(x=>x?.pack_id && String(x.order_id||'')===String(r.order_id||''))?.pack_id || related.find(x=>x?.pack_id)?.pack_id || '';
+      const displayedPack=r.pack_id||raw.pack_id||identifiers.pack_id||relatedPack||'—';
+      const err=r.error_reason||((r.stock_action==='manual_review'||r.stock_action==='review'||r.stock_action==='outbound_pending'||r.stock_action==='mapping_pending')?r.notes:'')||'—';
+      const detail={order_id:r.order_id,pack_id:displayedPack,shipment_id:r.shipment_id,order_status:r.order_status,logistic_type:r.logistic_type,shipment_status:r.shipment_status,stock_action:r.stock_action,inventory_result:r.inventory_result,outbound_movement_id:r.outbound_movement_id,reversal_movement_id:r.reversal_movement_id,cancellation_confirmed_at:r.cancellation_confirmed_at,warehouse_return_confirmed_at:r.warehouse_return_confirmed_at,items_detail:r.items_detail,raw_status:r.raw_status,notes:r.notes};
       const detailHtml=`<details><summary>Ver detalle</summary><pre class="ml-hist-detail">${escapeMLHtml(JSON.stringify(detail,null,2))}</pre></details>`;
-      return `<tr><td>${escapeMLHtml(String(rawDate).replace('T',' ').slice(0,19)||'—')}</td><td><strong>${escapeMLHtml(r.order_id||'—')}</strong></td><td>${escapeMLHtml(r.pack_id||'—')}</td><td>${escapeMLHtml(r.shipment_id||'—')}</td><td>${mlHistPill(r.order_status)}</td><td>${mlHistPill([r.shipment_status||'—',r.raw_status?.shipment_substatus||r.raw_status?.substatus||''].filter(Boolean).join(' · '))}</td><td><div class="ml-hist-detail">${escapeMLHtml(items)}</div></td><td>${mlHistPill(r.inventory_result)}</td><td>${escapeMLHtml(err)}</td><td>${detailHtml}</td></tr>`;
+      return `<tr><td>${escapeMLHtml(String(rawDate).replace('T',' ').slice(0,19)||'—')}</td><td><strong>${escapeMLHtml(r.order_id||'—')}</strong></td><td>${escapeMLHtml(displayedPack)}</td><td>${mlHistPill(r.order_status)}</td><td>${mlHistPill([r.shipment_status||'—',r.raw_status?.shipment_substatus||r.raw_status?.substatus||''].filter(Boolean).join(' · '))}</td><td><div class="ml-hist-detail">${escapeMLHtml(items)}</div></td><td>${mlHistPill(r.inventory_result)}</td><td>${escapeMLHtml(err)}</td><td>${detailHtml}</td></tr>`;
     }).join('');
     out.innerHTML=`<div class="ml-history-scroll"><table><thead><tr><th>Fecha</th><th>Pedido</th><th>Paquete</th><th>Envío</th><th>Estado del pedido</th><th>Estado / subestado del envío</th><th>Producto / SKU / cantidad</th><th>Resultado de inventario</th><th>Error / observación</th><th>Acción</th></tr></thead><tbody>${tableRows}</tbody></table></div><p class="muted">Mostrando ${rows.length} pedido(s). La acción disponible permite revisar el detalle; no reintenta descuentos ni devuelve existencias.</p>`;
     status.textContent=`Consulta terminada: ${rows.length} pedido(s) mostrados de ${all.length} registro(s) cargados.`;
@@ -256,24 +287,54 @@ async function testMercadoLibreOrders(){
 }
 async function processMercadoLibreNotifications(){
   const btn=document.getElementById('mlProcessBtn'),status=document.getElementById('mlTestStatus'),out=document.getElementById('mlProcessResults');
-  if(!isAdminSession()){status.textContent='Solo un administrador puede consultar este diagnóstico.';return}
-  if(activeBaseKey!=='bikebeat'){status.textContent='Cambia a la base Bikebeat para consultar Mercado Libre.';return}
-  btn.disabled=true;status.textContent='Consultando pedidos recientes en modo de solo lectura…';out.innerHTML='';
+  if(!isAdminSession()){status.textContent='Solo un administrador puede procesar la simulación.';return}
+  if(activeBaseKey!=='bikebeat'){status.textContent='Cambia a la base Bikebeat para ejecutar esta prueba.';return}
+  btn.disabled=true;status.textContent='Analizando notificaciones pendientes en modo simulación…';out.innerHTML='';
   try{
-    // Intentionally call only the read-only orders endpoint; never invoke the notification processor from this UI.
-    const {data,error}=await supa.functions.invoke('mercadolibre-orders-test',{body:{}});
+    const {data,error}=await supa.functions.invoke('mercadolibre-notification-processor',{body:{}});
     if(error)throw error;
-    if(!data||!data.ok)throw new Error(data?.detail||data?.error||'No se pudieron consultar los pedidos');
-    const rows=(data.orders||[]).map(o=>`<tr><td>${escapeMLHtml(o.id||'—')}</td><td>${escapeMLHtml(o.status||'—')}</td><td>${escapeMLHtml(o.shipment_substatus||o.shipment_sub_status||'—')}</td><td>${escapeMLHtml(o.logistic_type||'—')}</td><td>${escapeMLHtml(o.classification||'Pendiente de identificar')}</td></tr>`).join('');
-    out.innerHTML=`<p class="muted">Consulta terminada: ${Number(data.returned||0)} pedido(s). Solo lectura; no se invocó el procesador de notificaciones.</p><div style="overflow-x:auto"><table class="table"><thead><tr><th>Pedido</th><th>Estado</th><th>Subestado envío</th><th>Logística</th><th>Clasificación</th></tr></thead><tbody>${rows||'<tr><td colspan="5">No se encontraron pedidos recientes.</td></tr>'}</tbody></table></div>`;
-    status.textContent='Consulta terminada · solo lectura · inventario y movimientos sin cambios.';
-  }catch(e){
-    console.error('Mercado Libre read-only order analysis failed',e);
-    status.textContent='No se pudo consultar Mercado Libre: '+(e?.message||String(e));
-  }finally{btn.disabled=false}
+    if(!data||!data.ok)throw new Error(data?.error||'No se pudo procesar la simulación');
+    status.textContent=`Simulación terminada: ${data.processed} notificación(es) analizada(s). Inventario sin cambios.`;
+    // A notification is an event, not a sale. Group repeated notifications by order ID for display.
+    const byOrder=new Map();
+    (data.results||[]).forEach(r=>{
+      const key=String(r.order_id||('notification-'+r.notification_id));
+      const prev=byOrder.get(key);
+      if(!prev || (r.item_matches||[]).length>(prev.item_matches||[]).length) byOrder.set(key,{...r,notification_count:(prev?.notification_count||0)+1});
+      else prev.notification_count=(prev.notification_count||1)+1;
+    });
+    const grouped=[...byOrder.values()];
+    const rows=grouped.map(r=>{
+      const matches=(r.item_matches||[]).map(it=>`<div><strong>${escapeMLHtml(it.ml_title||it.ml_item_id||'Artículo')}</strong><br><small>SKU ML: ${escapeMLHtml(it.ml_sku||'No informado')} → SKU Inventario: ${escapeMLHtml(it.inventory_sku||'Sin coincidencia')} · ${escapeMLHtml(it.inventory_product_name||'')} · Cantidad: ${escapeMLHtml(it.quantity??'—')} · Método: ${escapeMLHtml(it.match_method||'—')}</small><br><button type="button" class="ghost" style="margin-top:5px" data-seller="${escapeMLHtml(r.seller_id||'155121724')}" data-item="${escapeMLHtml(it.ml_item_id||'')}" data-sku="${escapeMLHtml(it.ml_sku||'')}" data-title="${escapeMLHtml(it.ml_title||'')}" onclick="openSkuMapping(this)">${it.match_method==='verified_mapping'?'Cambiar equivalencia':'Confirmar producto'}</button></div>`).join('<hr>');
+      const eventCount=r.notification_count||1;
+      const related=Array.isArray(r.related_orders)?r.related_orders:[];
+      const diag=r.order_identifier_diagnostics||{};
+      const relatedLabel=related.length?related.map(ro=>`Pedido relacionado: ${escapeMLHtml(ro.order_id||'—')}${ro.pack_id?` · Paquete: ${escapeMLHtml(ro.pack_id)}`:''}`).join('<br>'):(diag.pack_id?`Paquete detectado en pedido: ${escapeMLHtml(diag.pack_id)}`:'No se obtuvo relación de paquete/pedidos');
+      const diagnosticLines=[
+        r.pack_id?`Paquete API: ${r.pack_id}`:'',
+        r.shipment_substatus?`Subestado API: ${r.shipment_substatus}`:'',
+        r.history_refresh_at?`Última consulta: ${r.history_refresh_at}`:'',
+        r.history_refresh_diagnostic?`Diagnóstico de actualización: ${r.history_refresh_diagnostic}`:'',
+        r.relation_source?`Origen relación: ${r.relation_source}`:'',
+        r.related_orders_http_status!=null?`HTTP envío→pedidos: ${r.related_orders_http_status}`:'',
+        r.order_shipments_http_status!=null?`HTTP pedido→envíos: ${r.order_shipments_http_status}`:'',
+        r.relation_diagnostic||'',
+        r.relation_api_error?`Error envío→pedidos: ${r.relation_api_error}`:'',
+        r.order_shipments_api_error?`Error pedido→envíos: ${r.order_shipments_api_error}`:'',
+        r.shipment_detail_error?`Error detalle envío: ${r.shipment_detail_error}`:'',
+        diag.order_id?`ID pedido API: ${diag.order_id}`:'',
+        diag.pack_id?`Pack ID del pedido: ${diag.pack_id}`:'',
+        diag.item_pack_ids?.length?`Pack ID de artículos: ${diag.item_pack_ids.join(', ')}`:'',
+        diag.shipping_id?`Shipping ID del pedido: ${diag.shipping_id}`:''
+      ].filter(Boolean).map(x=>`<small>${escapeMLHtml(x)}</small>`).join('<br>');
+      return `<tr><td><div class="ml-order-id">${escapeMLHtml(r.order_id||r.notification_id||'—')}</div><small>${eventCount} notificación(es)</small><small class="ml-diagnostic">Envío: ${escapeMLHtml(r.shipment_id||'—')}</small><small class="ml-diagnostic">Paquete: ${escapeMLHtml(r.pack_id||diag.pack_id||'—')}</small><small class="ml-diagnostic">${relatedLabel}</small>${diagnosticLines?`<div class="ml-diagnostic">${diagnosticLines}</div>`:''}</td><td>${escapeMLHtml(r.order_status||r.result||'—')}</td><td><strong>${escapeMLHtml(r.logistic_type||'No identificada')}</strong><small class="ml-diagnostic">Estado: ${escapeMLHtml(r.shipment_status||'—')}</small><small class="ml-diagnostic">Subestado: ${escapeMLHtml(r.shipment_substatus||'—')}</small></td><td><strong>${escapeMLHtml(r.stock_action||'—')}</strong><small class="ml-diagnostic">${escapeMLHtml(r.notes||'')}</small></td><td>${matches||'Sin detalle de artículos'}</td></tr>`;
+    }).join('');
+    out.innerHTML=`<h4>${data.history?'Historial de pedidos y SKU':'Resultado de simulación SKU'}</h4><p class="muted">${data.history?`No había notificaciones nuevas. Se muestran ${escapeMLHtml(grouped.length)} pedido(s) guardados en el historial.`:`Se analizaron ${escapeMLHtml(data.processed||0)} notificación(es), agrupadas en ${escapeMLHtml(grouped.length)} pedido(s) únicos. Las notificaciones repetidas se muestran juntas; no equivalen a ventas adicionales.`} No se registraron movimientos ni se modificó stock. Las coincidencias exactas son candidatas y deben verificarse antes de autorizar movimientos.</p>${data.sync_diagnostic?`<div class="card" style="padding:12px;margin:10px 0"><h4>Diagnóstico de sincronización reciente</h4><p>Conexiones: <strong>${escapeMLHtml(data.sync_diagnostic.connections_found??'—')}</strong> · Consultas a API: <strong>${escapeMLHtml(data.sync_diagnostic.api_requests??'—')}</strong> · HTTP: <strong>${escapeMLHtml((data.sync_diagnostic.api_http_statuses||[]).join(', ')||'Sin consulta')}</strong></p><p>Pedidos encontrados por consulta reciente: <strong>${escapeMLHtml(data.sync_diagnostic.api_orders_found??'—')}</strong> · Ya en cola: <strong>${escapeMLHtml(data.sync_diagnostic.already_queued??'—')}</strong> · Nuevos/en cola: <strong>${escapeMLHtml(data.sync_diagnostic.queued_new_or_updated??'—')}</strong></p>${data.sync_diagnostic.connection_query_error?`<p><strong>Error consultando conexiones:</strong> ${escapeMLHtml(data.sync_diagnostic.connection_query_error)}</p>`:''}${(data.sync_diagnostic.api_errors||[]).length?`<p><strong>Errores API:</strong> ${escapeMLHtml(data.sync_diagnostic.api_errors.join(' | '))}</p>`:''}${(data.sync_diagnostic.insert_errors||[]).length?`<p><strong>Errores al poner en cola:</strong> ${escapeMLHtml(data.sync_diagnostic.insert_errors.join(' | '))}</p>`:''}<details><summary>Ver JSON de sincronización</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(JSON.stringify(data.sync_diagnostic,null,2))}</pre></details></div>`:`<p class="muted">El servidor no devolvió el bloque sync_diagnostic; revisa la versión de la función desplegada.</p>`}${rows?`<div class="ml-history-scroll"><table class="ml-history-table"><thead><tr><th>Pedido / envío / paquete</th><th>Estado pedido</th><th>Logística y estado del envío</th><th>Acción propuesta</th><th>Relación SKU</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<p>No hay notificaciones nuevas ni pedidos guardados en el historial todavía.</p>'}<details style="margin-top:12px"><summary>Diagnóstico técnico de notificaciones</summary><p class="muted">Respuesta completa de mercadolibre-notification-processor. Esta operación sigue siendo simulación y no reintenta ni modifica inventario.</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto">${escapeMLHtml(JSON.stringify(data,null,2))}</pre></details>`;
+  }catch(e){console.error('Mercado Libre notification dry-run failed',e);const detail={message:e?.message||String(e),name:e?.name||'Error',context:e?.context||null};status.textContent='No se pudo completar la simulación. Abre el detalle técnico para revisar el error.';out.innerHTML=`<div class="card" style="padding:10px"><strong>Falló el análisis de notificaciones</strong><p>${escapeMLHtml(detail.message)}</p><details open><summary>Detalle técnico del error</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(JSON.stringify(detail,null,2))}</pre></details></div>`}
+  finally{btn.disabled=false}
 }
-
-function tab(id){if(!canTab(id))return;['dashboard','products','move','suppliers','reports','returns','users'].forEach(x=>document.getElementById(x).classList.toggle('hidden',x!==id));if(window.dashboardTimer){clearInterval(window.dashboardTimer);window.dashboardTimer=null;}if(id==='dashboard'){dash();window.dashboardTimer=setInterval(()=>dash(),30000);}if(id==='products')loadProducts();if(id==='move'){loadParties();loadMovementPartyMenu();}if(id==='suppliers'){setPartyMode(partyMode);loadSuppliers();loadCustomers();}if(id==='returns'){setReturnType(returnType);}if(id==='users')loadUsers();}
+function tab(id){if(!canTab(id))return;['dashboard','products','move','suppliers','reports','returns','users','mlListings'].forEach(x=>document.getElementById(x).classList.toggle('hidden',x!==id));if(window.dashboardTimer){clearInterval(window.dashboardTimer);window.dashboardTimer=null;}if(id==='dashboard'){dash();window.dashboardTimer=setInterval(()=>dash(),30000);}if(id==='products')loadProducts();if(id==='move'){loadParties();loadMovementPartyMenu();}if(id==='suppliers'){setPartyMode(partyMode);loadSuppliers();loadCustomers();}if(id==='returns'){setReturnType(returnType);}if(id==='users')loadUsers();if(id==='mlListings')loadMLListings();}
+document.addEventListener('DOMContentLoaded',()=>{['email','password'].forEach(id=>{const el=document.getElementById(id);el?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();login()}})});});
 async function login(){const emailEl=document.getElementById('email'),passwordEl=document.getElementById('password'),msg=document.getElementById('loginMsg');if(!supa)return msg.textContent='Configura primero Supabase.';const e=emailEl.value.trim(),pw=passwordEl.value;loginPassword=pw;if(!e||!pw){msg.textContent='Escribe tu correo y contraseña.';return}msg.textContent='Conectando con Supabase…';try{const result=await Promise.race([supa.auth.signInWithPassword({email:e,password:pw}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('TIMEOUT')),15000))]);const {data,error}=result;if(error){msg.textContent=(error.code?error.code+': ':'')+error.message;return}if(!data?.user){msg.textContent='No se recibió un usuario válido.';return}msg.textContent='Acceso correcto. Cargando…';await start(data.user)}catch(err){console.error('LOGIN_ERROR',err);if(err?.message==='TIMEOUT'){msg.textContent='No responde el servidor de acceso. Verificando conexión…'}else{msg.textContent='Error de conexión. Verificando Supabase…'}try{const r=await fetch(CFG.url+'/auth/v1/settings',{headers:{apikey:CFG.key}});if(r.ok){msg.textContent='Supabase responde correctamente. El problema está en el inicio de sesión; revisa correo/contraseña.'}else{msg.textContent='Supabase respondió HTTP '+r.status+'. Abre la app de nuevo e inténtalo.'}}catch(testErr){console.error('SUPABASE_NETWORK_TEST',testErr);msg.textContent='No se puede conectar con Supabase desde este navegador. Prueba con datos móviles u otro navegador y desactiva VPN/bloqueadores.'}}}
 async function signup(){const emailEl=document.getElementById('email'),passwordEl=document.getElementById('password'),msg=document.getElementById('loginMsg');const e=emailEl.value.trim(),pw=passwordEl.value;loginPassword=pw;if(!e||!pw){msg.textContent='Para crear la cuenta escribe correo y contraseña.';return}if(pw.length<6){msg.textContent='La contraseña debe tener al menos 6 caracteres.';return}msg.textContent='Creando cuenta…';const {data,error}=await supa.auth.signUp({email:e,password:pw,options:{data:{full_name:e.split('@')[0]},emailRedirectTo:location.origin+'/'}});if(error){msg.textContent=error.message;return}if(data.session&&data.user){msg.textContent='Cuenta creada. Entrando…';await start(data.user)}else{msg.textContent='Cuenta creada. Revisa tu correo para confirmar la cuenta y después entra.'}}
 function showResetScreen(){const login=document.getElementById('login'),screen=document.getElementById('resetScreen'),source=document.getElementById('email'),target=document.getElementById('resetEmail'),msg=document.getElementById('resetMsg');if(source?.value.trim())target.value=source.value.trim();if(msg)msg.textContent='';login.classList.add('hidden');screen.classList.remove('hidden');setTimeout(()=>target?.focus({preventScroll:true}),50)}
@@ -454,7 +515,7 @@ function renderProductListControls(total){
   const pageCount=Math.max(1,Math.ceil((total||0)/PRODUCT_LIST_PAGE_SIZE));
   const start=total?productListPage*PRODUCT_LIST_PAGE_SIZE+1:0;
   const end=Math.min((productListPage+1)*PRODUCT_LIST_PAGE_SIZE,total||0);
-  const sortButtons=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0"><b style="margin-right:4px">Ordenar listado:</b><button type="button" class="ghost" style="${productStockSort==='name'?activeStyle:''}" onclick="setProductStockSort('name')">Alfabético</button><button type="button" class="ghost" style="${productStockSort==='stock_desc'?activeStyle:''}" onclick="setProductStockSort('stock_desc')">Stock: mayor a menor ↓</button><button type="button" class="ghost" style="${productStockSort==='stock_asc'?activeStyle:''}" onclick="setProductStockSort('stock_asc')">Stock: menor a mayor ↑</button></div>`;
+  const sortButtons=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0"><b style="margin-right:4px">Ordenar listado:</b><button type="button" class="ghost" style="${productStockSort==='name'?'background:var(--accent,#2563eb);color:white;border-color:var(--accent,#2563eb)':''}" onclick="setProductStockSort('name')">Alfabético</button><button type="button" class="ghost" style="${productStockSort==='stock_desc'?'background:var(--accent,#2563eb);color:white;border-color:var(--accent,#2563eb)':''}" onclick="setProductStockSort('stock_desc')">Stock: mayor a menor ↓</button><button type="button" class="ghost" style="${productStockSort==='stock_asc'?'background:var(--accent,#2563eb);color:white;border-color:var(--accent,#2563eb)':''}" onclick="setProductStockSort('stock_asc')">Stock: menor a mayor ↑</button></div>`;
   document.getElementById('productListControls').innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px"><b style="width:100%;margin-bottom:2px">Buscar por letra inicial</b>${allButton}${letterButtons}${noPriceButton}</div>${sortButtons}<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin:8px 0 12px"><span class="muted">Mostrando ${start}–${end} de ${total||0} productos${productInitialFilter?` · Inicial: ${productInitialFilter}`:''}${productStockSort==='stock_desc'?' · Stock de mayor a menor':productStockSort==='stock_asc'?' · Stock de menor a mayor':''}</span><div class="row" style="gap:6px;margin:0"><button type="button" class="ghost" onclick="changeProductPage(-1)" ${productListPage<=0?'disabled':''}>← Anterior</button><span class="muted" style="align-self:center">Página ${Math.min(productListPage+1,pageCount)} de ${pageCount}</span><button type="button" class="ghost" onclick="changeProductPage(1)" ${productListPage+1>=pageCount?'disabled':''}>Siguiente →</button></div></div>`;
 }
 async function loadProducts(){
@@ -483,7 +544,7 @@ async function loadProducts(){
   if(!term && total>0 && productListPage*PRODUCT_LIST_PAGE_SIZE>=total){productListPage=Math.max(0,Math.ceil(total/PRODUCT_LIST_PAGE_SIZE)-1);return loadProducts();}
   renderProductListControls(total);
   if(!data?.length){out.innerHTML='<div class="status">No se encontraron productos con esos criterios.</div>';return;}
-  const rows=data.map(p=>`<tr class="${p.active===false?'product-inactive-row':''}" title="${p.active===false?'Producto inactivo':'Producto activo'}${p.exclude_from_trello_alerts===true?' · Marcado para Trello':''}"><td>${esc(p.sku)}</td><td>${esc(p.name)}<span style="display:inline-block;margin:4px 0 0 6px;padding:2px 6px;border-radius:5px;background:${p.active===false?'#7f303b':'#174d36'};color:#fff;font-size:10px;font-weight:700">${p.active===false?'INACTIVO':'ACTIVO'}</span>${p.exclude_from_trello_alerts===true?'':' <span style="display:inline-block;margin:4px 0 0 6px;padding:2px 6px;border-radius:5px;background:#174d36;color:#baf7d4;font-size:10px;font-weight:700">TRELLO</span>'}</td><td>${esc(p.barcode||'—')}</td><td>${Number(p.stock||0)}</td><td>$${Number(p.sale_price||0).toFixed(2)}</td>${isAdminSession()?`<td>${moneyMX(Number(p.stock||0)*Number(p.sale_price||0))}</td>`:''}<td><button class="ghost" onclick="editProduct('${p.id}')">Editar</button></td></tr><tr id="edit-${p.id}" class="hidden"><td colspan="6"><div class="editbox"><div style="font-size:16px;font-weight:800;margin-bottom:10px">Editar producto</div><div class="editgrid"><label>SKU<input id="sku-${p.id}" data-original-sku="${attr(p.sku||'')}" data-original-barcode="${attr(p.barcode||'')}" value="${attr(p.sku||'')}" placeholder="SKU"></label><label>Nombre<input id="name-${p.id}" value="${attr(p.name)}" placeholder="Nombre del producto"></label><label>Código de barras<div class="row"><input id="barcode-${p.id}" value="${attr(p.barcode||'')}" placeholder="Código de barras"><button type="button" class="ghost" onclick="startProductScan('barcode-${p.id}')">📷 Escanear</button></div></label><label>Unidad<select id="unit-${p.id}">${['pieza','caja','paquete','bolsa','bulto','par','docena','kilogramo','gramo','litro','mililitro','metro','centimetro','rollo','tarima'].map(u=>`<option value="${u}" ${String(p.unit||'pieza').toLowerCase()===u?'selected':''}>${({'pieza':'Pieza','caja':'Caja','paquete':'Paquete','bolsa':'Bolsa','bulto':'Bulto','par':'Par','docena':'Docena','kilogramo':'Kilogramo (kg)','gramo':'Gramo (g)','litro':'Litro (L)','mililitro':'Mililitro (ml)','metro':'Metro (m)','centimetro':'Centímetro (cm)','rollo':'Rollo','tarima':'Tarima'})[u]}</option>`).join('')}${p.unit && !['pieza','caja','paquete','bolsa','bulto','par','docena','kilogramo','gramo','litro','mililitro','metro','centimetro','rollo','tarima'].includes(String(p.unit).toLowerCase())?`<option value="${attr(p.unit)}" selected>${esc(p.unit)}</option>`:''}</select></label><label>Precio de compra<input id="purchase-${p.id}" type="number" step="0.01" value="${Number(p.purchase_price||0)}" placeholder="0.00" oninput="syncSaleFromPurchase('purchase-${p.id}','sale-${p.id}')"></label><label>Precio de venta<input id="sale-${p.id}" type="number" step="0.01" value="${Number(p.sale_price||0)}" placeholder="0.00"></label><label>Stock<input id="stock-${p.id}" type="number" step="0.01" value="${Number(p.stock||0)}" placeholder="0"></label><label>Stock mínimo<input id="min-${p.id}" type="number" step="0.01" value="${Number(p.min_stock||0)}" placeholder="0"></label><label>Estado<select id="active-${p.id}"><option value="true" ${p.active!==false?'selected':''}>Activo</option><option value="false" ${p.active===false?'selected':''}>Inactivo</option></select></label><label>Descripción<input id="desc-${p.id}" value="${attr(p.description||'')}" placeholder="Descripción del producto"></label></div><div class="row" style="margin-top:10px"><button onclick="saveProduct('${p.id}')">Guardar cambios</button><button class="ghost" onclick="loadProducts()">Cancelar</button></div><div id="save-${p.id}" class="status"></div></div></td></tr>`).join('');
+  const rows=data.map(p=>`<tr class="${p.active===false?'product-inactive-row':''}" title="${p.active===false?'Producto inactivo':(p.exclude_from_trello_alerts===true?'Producto excluido de alertas de Trello':'Producto activo para alertas de Trello')}"><td>${esc(p.sku)}</td><td>${esc(p.name)}${p.active===false?' <span style="display:inline-block;margin-left:6px;padding:2px 6px;border-radius:5px;background:#7f303b;color:#fff;font-size:10px;font-weight:700">INACTIVO</span>':''}<span style="display:inline-block;margin:4px 0 0 6px;padding:2px 6px;border-radius:5px;background:${p.exclude_from_trello_alerts===true?'#5b4a2a':'#174d36'};color:${p.exclude_from_trello_alerts===true?'#ffe1a6':'#baf7d4'};font-size:10px;font-weight:700">${p.exclude_from_trello_alerts===true?'':'<span style="display:inline-block;margin:4px 0 0 6px;padding:2px 6px;border-radius:5px;background:#174d36;color:#baf7d4;font-size:10px;font-weight:700">TRELLO</span>'}</span></td><td>${esc(p.barcode||'—')}</td><td>${Number(p.stock||0)}</td><td>$${Number(p.sale_price||0).toFixed(2)}</td>${isAdminSession()?`<td>${moneyMX(Number(p.stock||0)*Number(p.sale_price||0))}</td>`:''}<td><button class="ghost" onclick="editProduct('${p.id}')">Editar</button></td></tr><tr id="edit-${p.id}" class="hidden"><td colspan="6"><div class="editbox"><div style="font-size:16px;font-weight:800;margin-bottom:10px">Editar producto</div><div class="editgrid"><label>SKU<input id="sku-${p.id}" value="${attr(p.sku||'')}" placeholder="SKU"></label><label>Nombre<input id="name-${p.id}" value="${attr(p.name)}" placeholder="Nombre del producto"></label><label>Código de barras<div class="row"><input id="barcode-${p.id}" value="${attr(p.barcode||'')}" placeholder="Código de barras"><button type="button" class="ghost" onclick="startProductScan('barcode-${p.id}')">📷 Escanear</button></div></label><label>Unidad<select id="unit-${p.id}">${['pieza','caja','paquete','bolsa','bulto','par','docena','kilogramo','gramo','litro','mililitro','metro','centimetro','rollo','tarima'].map(u=>`<option value="${u}" ${String(p.unit||'pieza').toLowerCase()===u?'selected':''}>${({'pieza':'Pieza','caja':'Caja','paquete':'Paquete','bolsa':'Bolsa','bulto':'Bulto','par':'Par','docena':'Docena','kilogramo':'Kilogramo (kg)','gramo':'Gramo (g)','litro':'Litro (L)','mililitro':'Mililitro (ml)','metro':'Metro (m)','centimetro':'Centímetro (cm)','rollo':'Rollo','tarima':'Tarima'})[u]}</option>`).join('')}${p.unit && !['pieza','caja','paquete','bolsa','bulto','par','docena','kilogramo','gramo','litro','mililitro','metro','centimetro','rollo','tarima'].includes(String(p.unit).toLowerCase())?`<option value="${attr(p.unit)}" selected>${esc(p.unit)}</option>`:''}</select></label><label>Precio de compra<input id="purchase-${p.id}" type="number" step="0.01" value="${Number(p.purchase_price||0)}" placeholder="0.00" oninput="syncSaleFromPurchase('purchase-${p.id}','sale-${p.id}')"></label><label>Precio de venta<input id="sale-${p.id}" type="number" step="0.01" value="${Number(p.sale_price||0)}" placeholder="0.00"></label><label>Stock<input id="stock-${p.id}" type="number" step="0.01" value="${Number(p.stock||0)}" placeholder="0"></label><label>Stock mínimo<input id="min-${p.id}" type="number" step="0.01" value="${Number(p.min_stock||0)}" placeholder="0"></label><label>Estado<select id="active-${p.id}"><option value="true" ${p.active!==false?'selected':''}>Activo</option><option value="false" ${p.active===false?'selected':''}>Inactivo</option></select></label><label style="display:flex;align-items:center;gap:8px"><input id="exclude-trello-${p.id}" type="checkbox" style="width:auto" ${p.exclude_from_trello_alerts===true?'checked':''}> Excluir de alertas de Trello</label><label>Descripción<input id="desc-${p.id}" value="${attr(p.description||'')}" placeholder="Descripción del producto"></label></div><div class="row" style="margin-top:10px"><button onclick="saveProduct('${p.id}')">Guardar cambios</button><button class="ghost" onclick="loadProducts()">Cancelar</button></div><div id="save-${p.id}" class="status"></div></div></td></tr>`).join('');
   out.innerHTML='<div style="overflow-x:auto"><table class="table"><tr><th>SKU</th><th>Producto</th><th>Código</th><th>Stock</th><th>Precio venta</th>'+(isAdminSession()?'<th>Valor del stock</th>':'')+'<th></th></tr>'+rows+'</table></div>';
 }
 
@@ -563,60 +624,68 @@ function editProduct(id){const q=document.getElementById('q');if(q)q.value='';do
 function toggleNewProduct(show){const box=document.getElementById('newProductBox');if(show===undefined)show=box.classList.contains('hidden');box.classList.toggle('hidden',!show);if(show){document.getElementById('newProductMsg').textContent='';document.getElementById('new-sku').focus();}}
 function generateAutoSku(){const d=new Date();const stamp=d.getFullYear().toString().slice(-2)+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');return `SKU-${stamp}-${Date.now().toString().slice(-6)}`}
 function syncSaleFromPurchase(purchaseId,saleId){const purchase=document.getElementById(purchaseId),sale=document.getElementById(saleId);if(purchase&&sale)sale.value=purchase.value;}
-async function createProduct(){const msg=document.getElementById('newProductMsg');let sku=document.getElementById('new-sku').value.trim(),name=document.getElementById('new-name').value.trim(),barcode=document.getElementById('new-barcode').value.trim();if(!name)return msg.textContent='El producto es obligatorio.';if(!sku&&!barcode)return msg.textContent='Debes capturar el SKU o el código de barras.';if(barcode){const {data:dupBarcode}=await supa.from('products').select('id').eq('barcode',barcode).limit(1).maybeSingle();if(dupBarcode)return msg.textContent='Código de barras ya existe.';}if(!sku){sku=generateAutoSku();document.getElementById('new-sku').value=sku;msg.textContent=`No capturaste SKU. Se generó automáticamente: ${sku}`;}const payload={sku,name,barcode:barcode||null,unit:document.getElementById('new-unit').value.trim()||'pieza',purchase_price:Number(document.getElementById('new-purchase').value||0),sale_price:Number(document.getElementById('new-sale').value||0),stock:Number(document.getElementById('new-stock').value||0),min_stock:Number(document.getElementById('new-min').value||0),description:document.getElementById('new-desc').value.trim()||null,active:document.getElementById('new-active').value==='true'};if(payload.purchase_price<0||payload.sale_price<0||payload.stock<0||payload.min_stock<0)return msg.textContent='Los valores no pueden ser negativos.';msg.textContent='Guardando…';let {error}=await supa.from('products').insert(payload);if(error&&error.code==='23505'&&!document.getElementById('new-sku').value.trim()){payload.sku=generateAutoSku();error=(await supa.from('products').insert(payload)).error;}if(error){msg.textContent=error.code==='23505'&&payload.barcode?'Código de barras ya existe.':'No se pudo crear el producto: '+error.message;return}msg.textContent=`Producto creado correctamente. SKU: ${payload.sku}`;['new-sku','new-name','new-barcode','new-unit','new-desc'].forEach(id=>document.getElementById(id).value='');['new-purchase','new-sale','new-stock','new-min'].forEach(id=>document.getElementById(id).value='0');document.getElementById('new-unit').value='pieza';document.getElementById('new-active').value='true';await loadProducts();if(!document.getElementById('dashboard')?.classList.contains('hidden'))await dash();setTimeout(()=>toggleNewProduct(false),700);}
+async function createProduct(){const msg=document.getElementById('newProductMsg');let sku=document.getElementById('new-sku').value.trim(),name=document.getElementById('new-name').value.trim(),barcode=document.getElementById('new-barcode').value.trim();if(!name)return msg.textContent='El producto es obligatorio.';if(!sku&&!barcode)return msg.textContent='Debes capturar el SKU o el código de barras.';if(barcode){const {data:dupBarcode}=await supa.from('products').select('id').eq('barcode',barcode).limit(1).maybeSingle();if(dupBarcode)return msg.textContent='Código de barras ya existe.';}if(!sku){sku=generateAutoSku();document.getElementById('new-sku').value=sku;msg.textContent=`No capturaste SKU. Se generó automáticamente: ${sku}`;}const payload={sku,name,barcode:barcode||null,unit:document.getElementById('new-unit').value.trim()||'pieza',purchase_price:Number(document.getElementById('new-purchase').value||0),sale_price:Number(document.getElementById('new-sale').value||0),stock:Number(document.getElementById('new-stock').value||0),min_stock:Number(document.getElementById('new-min').value||0),description:document.getElementById('new-desc').value.trim()||null,active:document.getElementById('new-active').value==='true',exclude_from_trello_alerts:document.getElementById('new-exclude-trello').checked};if(payload.purchase_price<0||payload.sale_price<0||payload.stock<0||payload.min_stock<0)return msg.textContent='Los valores no pueden ser negativos.';msg.textContent='Guardando…';let {error}=await supa.from('products').insert(payload);if(error&&error.code==='23505'&&!document.getElementById('new-sku').value.trim()){payload.sku=generateAutoSku();error=(await supa.from('products').insert(payload)).error;}if(error){msg.textContent=error.code==='23505'&&payload.barcode?'Código de barras ya existe.':'No se pudo crear el producto: '+error.message;return}msg.textContent=`Producto creado correctamente. SKU: ${payload.sku}`;['new-sku','new-name','new-barcode','new-unit','new-desc'].forEach(id=>document.getElementById(id).value='');['new-purchase','new-sale','new-stock','new-min'].forEach(id=>document.getElementById(id).value='0');document.getElementById('new-unit').value='pieza';document.getElementById('new-active').value='true';await loadProducts();if(!document.getElementById('dashboard')?.classList.contains('hidden'))await dash();setTimeout(()=>toggleNewProduct(false),700);}
 async function saveProduct(id){
-  let msg=document.getElementById('save-'+id);
+  const msg=document.getElementById('save-'+id);
   const skuInput=document.getElementById('sku-'+id);
-  const oldSku=String(skuInput?.dataset.originalSku||'').trim();
-  const oldBarcode=String(skuInput?.dataset.originalBarcode||'').trim();
-  let payload={sku:skuInput.value.trim(),name:document.getElementById('name-'+id).value.trim(),barcode:document.getElementById('barcode-'+id).value.trim()||null,unit:document.getElementById('unit-'+id).value.trim()||null,purchase_price:Number(document.getElementById('purchase-'+id).value||0),sale_price:Number(document.getElementById('sale-'+id).value||0),stock:Number(document.getElementById('stock-'+id).value||0),min_stock:Number(document.getElementById('min-'+id).value||0),description:document.getElementById('desc-'+id).value.trim()||null,active:document.getElementById('active-'+id).value==='true'};
+  const payload={sku:skuInput.value.trim(),name:document.getElementById('name-'+id).value.trim(),barcode:document.getElementById('barcode-'+id).value.trim()||null,unit:document.getElementById('unit-'+id).value.trim()||null,purchase_price:Number(document.getElementById('purchase-'+id).value||0),sale_price:Number(document.getElementById('sale-'+id).value||0),stock:Number(document.getElementById('stock-'+id).value||0),min_stock:Number(document.getElementById('min-'+id).value||0),description:document.getElementById('desc-'+id).value.trim()||null,active:document.getElementById('active-'+id).value==='true',exclude_from_trello_alerts:document.getElementById('exclude-trello-'+id).checked};
   if(!payload.sku)return msg.textContent='El SKU es obligatorio.';
   if(!payload.name)return msg.textContent='El nombre es obligatorio.';
   if(payload.purchase_price<0||payload.sale_price<0||payload.stock<0||payload.min_stock<0)return msg.textContent='Los valores no pueden ser negativos.';
-  if(payload.barcode){const {data:dupBarcode}=await supa.from('products').select('id').eq('barcode',payload.barcode).neq('id',id).limit(1).maybeSingle();if(dupBarcode)return msg.textContent='Código de barras ya existe.';}
+  const {data:current,error:currentErr}=await supa.from('products').select('id,sku,barcode').eq('id',id).single();
+  if(currentErr||!current)return msg.textContent='No se pudo verificar el producto actual: '+(currentErr?.message||'producto no encontrado');
+  const oldSku=String(current.sku||'').trim(), oldBarcode=String(current.barcode||'').trim();
+  if(payload.barcode){const {data:dupBarcode,error:barcodeErr}=await supa.from('products').select('id').eq('barcode',payload.barcode).neq('id',id).limit(1).maybeSingle();if(barcodeErr)return msg.textContent='No se pudo validar el código de barras: '+barcodeErr.message;if(dupBarcode)return msg.textContent='Código de barras ya existe.';}
   const skuChanged=payload.sku!==oldSku;
-  // Solo Bikebeat requiere actualizar y validar el SKU equivalente en ODKL.
-  // En ODKL, el SKU se administra de forma independiente y no consulta Bikebeat.
-  const syncSkuAcrossBases=skuChanged && activeBaseKey==='bikebeat';
-  let counterpart=null, targetClient=null, targetKey=null, counterpartOldSku=null;
+  // Regla explícita: solo Bikebeat valida y sincroniza el SKU equivalente en ODKL.
+  // En ODKL, el SKU se guarda exclusivamente en ODKL; jamás se consulta Bikebeat.
+  const editingBaseKey=String(activeBaseKey||localStorage.getItem('inventarioBase')||'bikebeat').toLowerCase();
+  const syncSkuAcrossBases=skuChanged && editingBaseKey==='bikebeat';
+  let counterpart=null,targetClient=null,targetKey=null,counterpartOldSku='';
   if(syncSkuAcrossBases){
-    msg.textContent='Validando SKU en '+BASES[otherBaseKey()].name+'…';
+    msg.textContent='Validando SKU equivalente en ODKL…';
     try{
       const other=await getTransferClient();targetClient=other.client;targetKey=other.targetKey;
-      // Identificar el mismo producto primero por código de barras; si no tiene, usar el SKU anterior.
       if(oldBarcode){
         const r=await targetClient.from('products').select('id,sku,barcode,name').eq('barcode',oldBarcode).limit(2);
-        if(r.error)throw new Error('No se pudo consultar la base '+BASES[targetKey].name+': '+r.error.message);
-        if((r.data||[]).length>1)throw new Error('Hay más de un producto con ese código de barras en '+BASES[targetKey].name+'. No se cambió ningún SKU.');
+        if(r.error)throw new Error('No se pudo consultar ODKL: '+r.error.message);
+        if((r.data||[]).length>1)throw new Error('Hay más de un producto con ese código de barras en ODKL. No se cambió ningún SKU.');
         counterpart=(r.data||[])[0]||null;
       }
       if(!counterpart&&oldSku){
         const r=await targetClient.from('products').select('id,sku,barcode,name').eq('sku',oldSku).limit(2);
-        if(r.error)throw new Error('No se pudo consultar la base '+BASES[targetKey].name+': '+r.error.message);
-        if((r.data||[]).length>1)throw new Error('El SKU anterior no identifica un único producto en '+BASES[targetKey].name+'. No se cambió ningún SKU.');
+        if(r.error)throw new Error('No se pudo consultar ODKL: '+r.error.message);
+        if((r.data||[]).length>1)throw new Error('El SKU anterior no identifica un único producto en ODKL. No se cambió ningún SKU.');
         counterpart=(r.data||[])[0]||null;
       }
-      if(!counterpart)throw new Error('No encontré el mismo producto en '+BASES[targetKey].name+' usando el código de barras o el SKU anterior ('+(oldSku||'vacío')+'). No se cambió el SKU. Verifica que el producto exista en ambas bases.');
+      if(!counterpart)throw new Error('No encontré el producto equivalente en ODKL por código de barras o SKU anterior ('+(oldSku||'vacío')+'). No se cambió el SKU en Bikebeat.');
       counterpartOldSku=String(counterpart.sku||'');
-      const {data:duplicate,error:dupErr}=await targetClient.from('products').select('id').eq('sku',payload.sku).neq('id',counterpart.id).limit(1).maybeSingle();
-      if(dupErr)throw new Error('No se pudo validar si el SKU ya existe en '+BASES[targetKey].name+': '+dupErr.message);
-      if(duplicate)throw new Error('El SKU “'+payload.sku+'” ya existe en '+BASES[targetKey].name+' para otro producto. No se realizó ningún cambio.');
+      const {data:localDup,error:localDupErr}=await supa.from('products').select('id').eq('sku',payload.sku).neq('id',id).limit(1).maybeSingle();
+      if(localDupErr)throw new Error('No se pudo validar el SKU en Bikebeat: '+localDupErr.message);
+      if(localDup)throw new Error('Ese SKU ya existe en Bikebeat para otro producto. No se realizó ningún cambio.');
+      const {data:targetDup,error:targetDupErr}=await targetClient.from('products').select('id').eq('sku',payload.sku).neq('id',counterpart.id).limit(1).maybeSingle();
+      if(targetDupErr)throw new Error('No se pudo validar el SKU en ODKL: '+targetDupErr.message);
+      if(targetDup)throw new Error('Ese SKU ya existe en ODKL para otro producto. No se realizó ningún cambio.');
     }catch(e){msg.textContent=e?.message||String(e);return;}
+  }else if(skuChanged && editingBaseKey==='odkl'){
+    // ODKL: comprobar duplicado únicamente dentro de ODKL, sin ninguna llamada a Bikebeat.
+    const {data:localDup,error:localDupErr}=await supa.from('products').select('id').eq('sku',payload.sku).neq('id',id).limit(1).maybeSingle();
+    if(localDupErr)return msg.textContent='No se pudo validar el SKU en ODKL: '+localDupErr.message;
+    if(localDup)return msg.textContent='Ese SKU ya existe en ODKL para otro producto.';
   }
-  msg.textContent='Guardando…';
-  // Primero actualizar la contraparte. Si falla la actualización local, intentar restaurar el SKU anterior.
+  msg.textContent='Guardando en '+(editingBaseKey==='odkl'?'ODKL':'Bikebeat')+'…';
   if(syncSkuAcrossBases){
     const {error:targetErr}=await targetClient.from('products').update({sku:payload.sku}).eq('id',counterpart.id);
-    if(targetErr){msg.textContent=targetErr.code==='23505'?'Ese SKU ya existe en '+BASES[targetKey].name+'. No se cambió ningún SKU.':'No se pudo actualizar el SKU en '+BASES[targetKey].name+': '+targetErr.message;return;}
+    if(targetErr){msg.textContent=targetErr.code==='23505'?'Ese SKU ya existe en ODKL. No se cambió ningún SKU.':'No se pudo actualizar el SKU equivalente en ODKL: '+targetErr.message;return;}
   }
   const {error}=await supa.from('products').update(payload).eq('id',id);
   if(error){
-    if(syncSkuAcrossBases){const {error:rollbackErr}=await targetClient.from('products').update({sku:counterpartOldSku}).eq('id',counterpart.id);if(rollbackErr){msg.textContent='Falló el guardado en '+BASES[activeBaseKey].name+' y también la reversión en '+BASES[targetKey].name+'. Revisa ambos productos antes de continuar. Error: '+error.message+' · Reversión: '+rollbackErr.message;return;}}
-    msg.textContent=error.code==='23505'?'Ese SKU o código ya existe en esta base. No se conservó el cambio en la otra base.':'No se pudo guardar: '+error.message;return;
+    if(syncSkuAcrossBases){const {error:rollbackErr}=await targetClient.from('products').update({sku:counterpartOldSku}).eq('id',counterpart.id);if(rollbackErr){msg.textContent='Falló el guardado en Bikebeat y también la reversión del SKU en ODKL. Revisa ambos productos. Error: '+error.message+' · Reversión: '+rollbackErr.message;return;}}
+    msg.textContent=error.code==='23505'?'Ese SKU o código ya existe en esta base.':'No se pudo guardar: '+error.message;return;
   }
   skuInput.dataset.originalSku=payload.sku;skuInput.dataset.originalBarcode=payload.barcode||'';
-  msg.textContent=syncSkuAcrossBases?'SKU actualizado en '+BASES[activeBaseKey].name+' y '+BASES[targetKey].name+'. Los demás cambios se guardaron correctamente.':(skuChanged && activeBaseKey==='odkl'?'SKU actualizado únicamente en ODKL. No se consultó ni modificó Bikebeat.':'Guardado correctamente.');
-  await new Promise(resolve=>setTimeout(resolve,3000));
+  msg.textContent=syncSkuAcrossBases?'SKU actualizado en Bikebeat y ODKL. Los demás cambios se guardaron correctamente.':(skuChanged&&editingBaseKey==='odkl'?'SKU actualizado únicamente en ODKL. No se consultó ni modificó Bikebeat.':'Guardado correctamente.');
+  await new Promise(resolve=>setTimeout(resolve,1500));
   await loadProducts();if(!document.getElementById('dashboard')?.classList.contains('hidden'))await dash();
 }
 function escJs(v){return String(v??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")}
@@ -668,11 +737,6 @@ function movementDateChanged(){
   if(sel?.value){
     const name=sel.options[sel.selectedIndex]?.text||'';
     moveContext={type:document.getElementById('type').value,partyId:sel.value,partyName:name,date};
-    // Actualiza el rótulo inmediatamente para que nunca conserve el día anterior.
-    const hint=document.getElementById('moveDateLabel');
-    if(hint)hint.textContent=date;
-    const selectedHint=document.getElementById('movementSelectedHint');
-    if(selectedHint)selectedHint.textContent='Seleccionado: '+name+' · '+date;
     localStorage.setItem('movementPartySelection',JSON.stringify({type:moveContext.type,partyId:moveContext.partyId,date}));
     loadSelectedMovementProcessed();
   }else loadMovementPartyMenu();
@@ -754,9 +818,8 @@ function movementDateBounds(date){
 async function loadSelectedMovementProcessed(){
   const out=document.getElementById('movementProcessedOut');
   if(!out||!moveContext?.partyId)return;
-  // Evita que una consulta anterior, más lenta, reemplace los resultados de la fecha recién elegida.
   const requestSeq=window.__movementProcessedRequestSeq=(window.__movementProcessedRequestSeq||0)+1;
-  const requestContext={partyId:moveContext.partyId,type:moveContext.type,date:moveContext.date||localDate()};
+  const requestContext={type:moveContext.type,partyId:moveContext.partyId,date:moveContext.date||localDate()};
   out.classList.remove('hidden');
   out.innerHTML='<div class="status"><b>Cargando movimientos registrados…</b></div>';
   const field=requestContext.type==='entrada'?'supplier_id':'customer_id';
@@ -1055,8 +1118,8 @@ async function confirmQuantity(){
   const p=pendingConfirmProduct,q=Math.floor(Number(document.getElementById('confirmQty').value||0));
   if(q<1)return;
   const existing=pendingLines.find(x=>x.product.id===p.id),already=existing?.quantity||0;
-  // Para Kits, la falta de stock del Kit se cubre con su componente en la base activa.
-  if(moveContext.type==='salida' && !isConfiguredKit(p) && Number(p.stock||0)<already+q){document.getElementById('qtyHelp').textContent=`Stock insuficiente en ${activeBaseName()}; se verificará ${BASES[otherBaseKey()].name} para transferir únicamente las piezas faltantes.`;}
+  // Permitir capturar la cantidad solicitada aunque falte stock local; saveMoveBatch
+  // transferirá primero el faltante desde la otra base o mostrará el motivo si no es posible.
   if(moveContext.type==='salida' && !isConfiguredKit(p) && Number(p.stock||0)<already+q && activeBaseKey==='bikebeat'){document.getElementById('qtyHelp').textContent='Stock de Bikebeat insuficiente; se verificará ODKL para transferir únicamente las piezas faltantes.';}
   if(existing)existing.quantity+=q;else pendingLines.push({product:p,quantity:q});
   // El botón Agregar también guarda inmediatamente el movimiento.
@@ -1111,7 +1174,7 @@ async function saveMoveBatch(){
     try{
       const counterpartSupplier=await getCounterpartSupplier();
       for(const line of pendingLines){
-        // Los Kits se completan con su componente dentro de la base activa; nunca se transfieren entre Bikebeat y ODKL.
+        // Kits QTY/SKU se completan con su componente en la base activa; no transferir el Kit.
         if(isConfiguredKit(line.product)) continue;
         const localStock=Number(line.product.stock||0);
         const shortage=Math.max(0,Number(line.quantity||0)-localStock);
@@ -1170,7 +1233,7 @@ async function saveMoveBatch(){
     try{
       const counterpartSupplier=await getCounterpartSupplier();
       for(const line of pendingLines){
-        // Los Kits se completan con su componente dentro de la base activa; nunca se transfieren entre Bikebeat y ODKL.
+        // Kits QTY/SKU se completan con su componente en la base activa; no transferir el Kit.
         if(isConfiguredKit(line.product)) continue;
         const localStock=Number(line.product.stock||0);
         const shortage=Math.max(0,Number(line.quantity||0)-localStock);
@@ -1218,7 +1281,6 @@ async function saveMoveBatch(){
   }
   if(moveContext.type==='salida'){
     for(const line of pendingLines){
-      // El trigger de Supabase completa los Kits faltantes con su componente en esta base.
       if(isConfiguredKit(line.product)) continue;
       if(Number(line.product.stock||0)<line.quantity){
         for(const t of shortageTransfers){
@@ -1336,7 +1398,6 @@ async function saveSavedAdjust(productId,currentQty,prefix=''){
 }
 
 async function removeSavedProduct(productId,maxQty,silent=false,requestedQty=null,feedbackEl=null){
-  const report=(text)=>{if(feedbackEl)feedbackEl.textContent=text;const globalMsg=document.getElementById('moveMsg');if(globalMsg)globalMsg.textContent=text;};
   const qtyRaw=silent?String(requestedQty??maxQty):prompt(`¿Cuántas piezas de este producto deseas quitar?\nRegistradas en la fecha seleccionada: ${maxQty}`,String(maxQty));
   if(qtyRaw===null)return false;
   const qty=Math.floor(Number(qtyRaw));
@@ -1345,41 +1406,29 @@ async function removeSavedProduct(productId,maxQty,silent=false,requestedQty=nul
   const partyField=moveContext.type==='entrada'?'supplier_id':'customer_id';
   const bounds=movementDateBounds(moveContext.date||localDate());
   const {data,error}=await queryMovementsForSelectedDay(moveContext.date||localDate(),moveContext.type,partyField,moveContext.partyId,'id,product_id,quantity,unit_price,movement_date').then(r=>r.error?r:({...r,data:(r.data||[]).filter(row=>row.product_id===productId)}));
-  if(error){const msg=document.getElementById('moveMsg');if(msg)msg.textContent='No se pudo consultar el movimiento: '+error.message;const panel=document.getElementById('adjustMsg-'+productId)||document.getElementById('setup-adjustMsg-'+productId);if(panel)panel.textContent='Error al consultar el movimiento: '+error.message;return false}
+  if(error){const text='No se pudo consultar el movimiento: '+error.message; if(feedbackEl)feedbackEl.textContent=text; const globalMsg=document.getElementById('moveMsg');if(globalMsg)globalMsg.textContent=text;return false}
   let remaining=qty;
   for(const row of (data||[])){
     if(remaining<=0)break;
     const rowQty=Number(row.quantity||0);
     if(rowQty<=remaining){
       const {error:delErr}=await supa.from('movements').delete().eq('id',row.id);
-      if(delErr){
-        // Pedidos de Mercado Libre pueden referenciar este movimiento por FK.
-        // No borrar el movimiento vinculado: poner su cantidad en cero conserva el ID
-        // y el historial del pedido; el ajuste de stock se aplica abajo una sola vez.
-        const isReferenced=String(delErr.message||'').includes('mercadolibre_order_control_outbound_movement_id_fkey') || String(delErr.message||'').includes('foreign key constraint');
-        if(isReferenced){
-          const {error:zeroErr}=await supa.from('movements').update({quantity:0,notes:'Ajuste de inventario: cantidad original anulada y conservada por referencia de pedido'}).eq('id',row.id);
-          if(zeroErr){const panel=document.getElementById('adjustMsg-'+productId)||document.getElementById('setup-adjustMsg-'+productId);if(panel)panel.textContent='No se pudo conservar y ajustar el movimiento: '+zeroErr.message;report('No se pudo ajustar el movimiento vinculado: '+zeroErr.message);return false}
-        } else {const panel=document.getElementById('adjustMsg-'+productId)||document.getElementById('setup-adjustMsg-'+productId);if(panel)panel.textContent='No se pudo quitar el movimiento: '+delErr.message;report('No se pudo quitar el movimiento: '+delErr.message);return false}
-      }
+      if(delErr){const text='No se pudo quitar el movimiento: '+delErr.message;if(feedbackEl)feedbackEl.textContent=text;const globalMsg=document.getElementById('moveMsg');if(globalMsg)globalMsg.textContent=text;return false}
       remaining-=rowQty;
     }else{
       const newQty=rowQty-remaining;
       const {error:upErr}=await supa.from('movements').update({quantity:newQty}).eq('id',row.id);
-      if(upErr){const msg=document.getElementById('moveMsg');if(msg)msg.textContent='No se pudo ajustar la cantidad: '+upErr.message;const panel=document.getElementById('adjustMsg-'+productId)||document.getElementById('setup-adjustMsg-'+productId);if(panel)panel.textContent='No se pudo actualizar el registro: '+upErr.message;return false}
+      if(upErr){const text='No se pudo ajustar la cantidad: '+upErr.message;if(feedbackEl)feedbackEl.textContent=text;const globalMsg=document.getElementById('moveMsg');if(globalMsg)globalMsg.textContent=text;return false}
       remaining=0;
     }
   }
-  if(remaining>0){report('No se pudo quitar toda la cantidad solicitada. No se completó el ajuste.');return false}
-  // Al quitar piezas de una salida se regresan al stock; al quitar piezas de una entrada se descuentan del stock.
+  if(remaining>0){document.getElementById('moveMsg').textContent='No se pudo quitar toda la cantidad solicitada.';return false}
   const delta=moveContext.type==='salida'?qty:-qty;
   const {data:prod,error:prodErr}=await supa.from('products').select('stock').eq('id',productId).single();
-  if(prodErr){report('Movimiento modificado, pero no se pudo actualizar el stock: '+prodErr.message);return false}
-  const currentStock=Number(prod.stock||0);
-  const newStock=currentStock+delta;
-  if(newStock<0){const msg=document.getElementById('moveMsg');if(msg)msg.textContent='No se puede reducir la entrada: el stock disponible no alcanza para retirar esas piezas.';const panel=document.getElementById('adjustMsg-'+productId)||document.getElementById('setup-adjustMsg-'+productId);if(panel)panel.textContent='Stock insuficiente para este ajuste.';return false}
+  if(prodErr){const text='Movimiento modificado, pero no se pudo actualizar el stock: '+prodErr.message;if(feedbackEl)feedbackEl.textContent=text;const globalMsg=document.getElementById('moveMsg');if(globalMsg)globalMsg.textContent=text;return false}
+  const newStock=Math.max(0,Number(prod.stock||0)+delta);
   const {error:stockErr}=await supa.from('products').update({stock:newStock}).eq('id',productId);
-  if(stockErr){const msg=document.getElementById('moveMsg');if(msg)msg.textContent='Movimiento modificado, pero no se pudo actualizar el stock: '+stockErr.message;const panel=document.getElementById('adjustMsg-'+productId)||document.getElementById('setup-adjustMsg-'+productId);if(panel)panel.textContent='El registro cambió, pero el stock no: '+stockErr.message;return false}
+  if(stockErr){const text='Movimiento modificado, pero no se pudo actualizar el stock: '+stockErr.message;if(feedbackEl)feedbackEl.textContent=text;const globalMsg=document.getElementById('moveMsg');if(globalMsg)globalMsg.textContent=text;return false}
   return true;
 }
 
@@ -1707,7 +1756,7 @@ function reportTypeChanged(){
   document.getElementById('exportExcelBtn').disabled=true;
   document.getElementById('exportPdfBtn').disabled=true;
 }
-function reportLabel(type){return ({inventory:'Inventario por producto',out:'Reporte de movimientos — salidas',in:'Reporte de movimientos — entradas',merma:'Reporte de mermas',good_return:'Reporte de devoluciones en buen estado',ml_delivered:'Ventas Mercado Libre entregadas — Bikebeat'})[type]||'Reporte'}
+function reportLabel(type){return ({inventory:'Inventario por producto',out:'Reporte de movimientos — salidas',in:'Reporte de movimientos — entradas',merma:'Reporte de mermas',good_return:'Reporte de devoluciones en buen estado'})[type]||'Reporte'}
 function reportDateRange(){return {from:document.getElementById('from').value,to:document.getElementById('to').value}}
 function formatReportDate(v){const s=String(v||'');if(!s)return '';const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1].slice(-2)}`:s}
 function setReportReady(rows,headers,title){currentReportRows=rows;currentReportHeaders=headers;currentReportTitle=title;document.getElementById('exportExcelBtn').disabled=!rows.length;document.getElementById('exportPdfBtn').disabled=!rows.length}
@@ -1806,12 +1855,12 @@ function exportReportPdf(){
 }
 function slugify(v){return String(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_|_$/g,'').toLowerCase()}
 
-
-
+</script><script>
 async function bootAuth(){if(!supa)return;const bs=document.getElementById('baseSelect');if(bs)bs.value=activeBaseKey;try{const {data:{session}}=await supa.auth.getSession();if(session?.user){await start(session.user)}else{document.getElementById('login').classList.remove('hidden');document.getElementById('resetScreen').classList.add('hidden');document.getElementById('app').classList.add('hidden')}}catch(e){console.warn('AUTH_BOOT',e)}}
 if(supa){supa.auth.onAuthStateChange((event,session)=>{if(event==='SIGNED_OUT'){document.getElementById('app').classList.add('hidden');document.getElementById('login').classList.remove('hidden');return}if(event==='SIGNED_IN' && session?.user && !user)start(session.user);});window.addEventListener('load',bootAuth)}
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));}
-
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));}</script>
+<div id="skuMappingModal" class="hidden" style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);padding:18px;overflow:auto"><div class="card" style="max-width:760px;margin:5vh auto"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><h3 style="margin:0">Confirmar equivalencia SKU</h3><button type="button" class="ghost" onclick="closeSkuMapping()">Cerrar</button></div><p id="skuMappingInfo" class="muted"></p><label for="skuProductSearch">Buscar producto de Inventario Online por SKU, código de barras o nombre</label><input id="skuProductSearch" placeholder="Escribe SKU, código de barras o descripción" style="width:100%;margin-top:8px" oninput="searchSkuProducts()"><div id="skuProductResults" style="margin-top:10px;max-height:45vh;overflow:auto"></div><p id="skuMappingStatus" class="muted"></p></div></div>
+<script>
 let pendingSkuMapping=null, skuSearchTimer=null;
 function openSkuMapping(btn){
  if(!isAdminSession()){alert('Solo un administrador puede confirmar equivalencias.');return}
@@ -1845,40 +1894,33 @@ async function confirmSkuMapping(productId){
 }
 
 
-// Refuerzo de fecha: funciona tanto si este script carga antes como después de DOMContentLoaded.
-(function bindMovementDateRefresh(){
-  const bind=()=>{
-    const dateInput=document.getElementById('moveDate');
-    if(!dateInput || dateInput.dataset.dateRefreshBound==='1')return;
-    dateInput.dataset.dateRefreshBound='1';
-    let timer=null;
-    const refreshSelectedMovementDate=()=>{
-      clearTimeout(timer);
-      const date=dateInput.value;
-      const sel=document.getElementById('movementPartySelect');
-      if(!date || !sel?.value)return;
-      // Actualizar el contexto de inmediato: la consulta nunca debe conservar el día previo.
-      const name=sel.options[sel.selectedIndex]?.text||'';
-      const type=document.getElementById('type')?.value||'salida';
-      moveContext={type,partyId:sel.value,partyName:name,date};
-      const label=document.getElementById('moveDateLabel');
-      if(label)label.textContent=date;
-      const hint=document.getElementById('movementSelectedHint');
-      if(hint)hint.textContent='Seleccionado: '+name+' · '+date;
-      const out=document.getElementById('movementProcessedOut');
-      if(out)out.innerHTML='<div class="status"><b>Actualizando movimientos para '+esc(date)+'…</b></div>';
-      localStorage.setItem('movementPartySelection',JSON.stringify({type,partyId:sel.value,date}));
-      timer=setTimeout(()=>{
-        if(typeof window.loadSelectedMovementProcessed==='function')window.loadSelectedMovementProcessed();
-        else if(typeof loadSelectedMovementProcessed==='function')loadSelectedMovementProcessed();
-      },80);
-    };
-    dateInput.addEventListener('input',refreshSelectedMovementDate);
-    dateInput.addEventListener('change',refreshSelectedMovementDate);
-  };
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind,{once:true});
-  else bind();
-})();
+// Mercado Libre Drop Off listing manager. Separate from stock sync and sales processing.
+let mlListingsRows=[];
+let mlListingsSelected=new Set();
+function mlListingStatusLabel(status){const s=String(status||'').toLowerCase();return s==='active'?'Activa':s==='paused'?'Pausada':(s||'Desconocido')}
+function renderMLListings(){
+ const out=document.getElementById('mlListingsOut');if(!out)return;
+ const q=String(document.getElementById('mlListingsSearch')?.value||'').trim().toLocaleLowerCase('es-MX');
+ const sf=String(document.getElementById('mlListingsStatusFilter')?.value||'');
+ const rows=mlListingsRows.filter(r=>{const hay=[r.title,r.sku,r.ml_item_id].join(' ').toLocaleLowerCase('es-MX');const st=String(r.status||'').toLowerCase();return (!q||hay.includes(q))&&(!sf||(sf==='other'?!['active','paused'].includes(st):st===sf));}).sort((a,b)=>String(a.title||'').localeCompare(String(b.title||''),'es',{sensitivity:'base'}));
+ const summary=document.getElementById('mlListingsSummary');if(summary){const active=mlListingsRows.filter(r=>r.status==='active').length,paused=mlListingsRows.filter(r=>r.status==='paused').length;summary.innerHTML=[['Drop Off consultadas',mlListingsRows.length],['Activas',active],['Pausadas',paused],['Seleccionadas',mlListingsSelected.size]].map(([k,v])=>`<div class="card" style="margin:0;padding:10px"><div class="muted">${escapeMLHtml(k)}</div><div class="metric">${Number(v)||0}</div></div>`).join('')}
+ if(!rows.length){out.innerHTML='<div class="status">No hay publicaciones que coincidan con los filtros. Actualiza la consulta o cambia los filtros.</div>';return}
+ out.innerHTML=`<table class="table"><thead><tr><th><input type="checkbox" aria-label="Seleccionar todas las filas visibles" onchange="selectAllVisibleMLListings(this.checked)"></th><th>Producto / publicación</th><th>SKU</th><th>ID ML</th><th>Logística</th><th>Estado</th><th>Subestado</th></tr></thead><tbody>${rows.map(r=>`<tr><td><input type="checkbox" aria-label="Seleccionar publicación" ${mlListingsSelected.has(String(r.ml_item_id))?'checked':''} onchange="toggleMLListingSelection('${escapeMLHtml(String(r.ml_item_id))}',this.checked)"></td><td><strong>${escapeMLHtml(r.title||'—')}</strong></td><td>${escapeMLHtml(r.sku||'—')}</td><td>${escapeMLHtml(r.ml_item_id||'—')}</td><td>${escapeMLHtml(r.logistics||'—')}</td><td>${escapeMLHtml(mlListingStatusLabel(r.status))}</td><td>${escapeMLHtml((r.sub_status||[]).join(', ')||'—')}</td></tr>`).join('')}</tbody></table>`;
+}
+function toggleMLListingSelection(id,checked){if(checked)mlListingsSelected.add(String(id));else mlListingsSelected.delete(String(id));renderMLListings()}
+function selectAllVisibleMLListings(checked){const q=String(document.getElementById('mlListingsSearch')?.value||'').trim().toLocaleLowerCase('es-MX');const sf=String(document.getElementById('mlListingsStatusFilter')?.value||'');mlListingsRows.filter(r=>{const hay=[r.title,r.sku,r.ml_item_id].join(' ').toLocaleLowerCase('es-MX');const st=String(r.status||'').toLowerCase();return (!q||hay.includes(q))&&(!sf||(sf==='other'?!['active','paused'].includes(st):st===sf));}).forEach(r=>{if(checked)mlListingsSelected.add(String(r.ml_item_id));else mlListingsSelected.delete(String(r.ml_item_id))});renderMLListings()}
+async function loadMLListings(){
+ const status=document.getElementById('mlListingsStatus'),btn=document.getElementById('mlListingsRefreshBtn'),out=document.getElementById('mlListingsOut');if(!status||!out)return;
+ if(!isAdminSession()){status.textContent='Solo un administrador puede administrar publicaciones.';return}
+ if(activeBaseKey!=='bikebeat'){status.textContent='Este módulo solo está disponible para Bikebeat. Cambia a esa base para continuar.';return}
+ if(btn)btn.disabled=true;status.textContent='Consultando publicaciones Drop Off en Mercado Libre…';out.innerHTML='';
+ try{const {data,error}=await supa.functions.invoke('mercadolibre-listing-manager',{body:{base_key:'bikebeat',mode:'list'}});if(error)throw error;if(!data||data.ok!==true)throw new Error(data?.message||data?.detail||data?.error||'No se recibió una lista válida');mlListingsRows=(data.results||[]).filter(r=>String(r.logistics||'').toLowerCase()==='xd_drop_off'||String(r.logistics||'').toLowerCase()==='drop_off');const validIds=new Set(mlListingsRows.map(r=>String(r.ml_item_id)));mlListingsSelected=new Set([...mlListingsSelected].filter(id=>validIds.has(id)));renderMLListings();status.textContent=`Consulta terminada: ${mlListingsRows.length} publicaciones Drop Off. No se modificó ninguna publicación ni el inventario.`;if(data.errors)status.textContent+=` Errores: ${data.errors}. Revisa las filas y vuelve a consultar si es necesario.`}catch(e){console.error('ML listing manager list error',e);status.textContent='No se pudieron consultar las publicaciones: '+(e?.message||String(e));out.innerHTML='<details class="card" open><summary>Detalle técnico</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+escapeMLHtml(JSON.stringify({message:e?.message||String(e),context:e?.context||null},null,2))+'</pre></details>'}finally{if(btn)btn.disabled=false}
+}
+async function changeMLListingsStatus(mode){
+ const status=document.getElementById('mlListingsStatus');if(!status)return;if(!isAdminSession())return status.textContent='Solo un administrador puede ejecutar esta acción.';if(activeBaseKey!=='bikebeat')return status.textContent='Cambia a la base Bikebeat.';
+ const ids=[...mlListingsSelected];if(!ids.length)return status.textContent='Selecciona al menos una publicación.';const verb=mode==='pause'?'PAUSAR':'REACTIVAR';if(!confirm(`Vas a ${verb} ${ids.length} publicación(es) Drop Off de Mercado Libre en Bikebeat. No se modificará el inventario ni se crearán movimientos. ¿Deseas continuar?`))return;
+ status.textContent=`Procesando ${ids.length} publicación(es)…`;try{const {data,error}=await supa.functions.invoke('mercadolibre-listing-manager',{body:{base_key:'bikebeat',mode,item_ids:ids}});if(error)throw error;if(!data||data.ok!==true)throw new Error(data?.message||data?.detail||data?.error||'No se recibió confirmación válida');const rows=data.results||[];const succeeded=rows.filter(r=>['paused','activated','already_paused','already_active'].includes(r.action)).length;const failed=rows.filter(r=>r.action==='error').length;status.textContent=`Operación terminada. Correctas/sin cambio necesario: ${succeeded}; errores: ${failed}; inventario modificado: no.`;const details=rows.map(r=>`${r.title||r.ml_item_id}: ${r.action}${r.message?' — '+r.message:''}`).join('\n');status.textContent+=' ';document.getElementById('mlListingsOut').insertAdjacentHTML('afterbegin',`<details class="card" open><summary>Resultado de la operación</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(details)}</pre></details>`);mlListingsSelected.clear();await loadMLListings()}catch(e){console.error('ML listing manager action error',e);status.textContent='No se pudo completar la operación: '+(e?.message||String(e))}
+}
 
 // Mercado Libre inventory sync — preview only. Never sends real marketplace updates.
 async function previewMercadoLibreInventorySync(){
@@ -1898,7 +1940,7 @@ async function previewMercadoLibreInventorySync(){
     const counts={propuestas:rows.filter(r=>r.action==='update'||r.action==='would_update'||r.action==='preview').length,omitidos:rows.filter(r=>r.action==='skipped').length,errores:rows.filter(r=>r.action==='error'||r.reason==='item_fetch_failed').length};
     summary.innerHTML=[['Publicaciones analizadas',rows.length],['Propuestas de cambio',counts.propuestas],['Omitidas / excluidas',counts.omitidos],['Errores',counts.errores]].map(([k,v])=>`<div class="card" style="margin:0;padding:12px"><div class="muted">${escapeMLHtml(k)}</div><div class="metric">${Number(v)||0}</div></div>`).join('');
     if(!rows.length){out.innerHTML='<div class="status">La función respondió correctamente, pero no devolvió filas de resultados. Revisa el detalle técnico de la respuesta.</div><details class="card"><summary>Respuesta técnica</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(JSON.stringify(data,null,2))}</pre></details>';status.textContent='Vista previa recibida; sin filas.';return}
-    out.innerHTML=`<table class="table"><thead><tr><th>Producto / publicación</th><th>SKU origen</th><th>Stock origen</th><th>Logística</th><th>Disponible ML</th><th>Propuesta</th><th>Resultado</th><th>Motivo</th></tr></thead><tbody>${rows.map(r=>`<tr><td><strong>${escapeMLHtml(r.product_name||r.title||'—')}</strong><br><small>${escapeMLHtml(r.ml_item_id||'')}</small></td><td>${escapeMLHtml(r.stock_source_sku||r.kit_origin_sku||r.sku||'—')}${r.pieces_per_kit?`<br><small>QTY: ${escapeMLHtml(r.pieces_per_kit)}</small>`:''}</td><td>${escapeMLHtml(r.stock_source_stock??'—')}</td><td>${escapeMLHtml(r.logistics||'—')}</td><td>${escapeMLHtml(r.current_ml_quantity??'—')}</td><td>${escapeMLHtml(r.target_quantity??'—')}</td><td>${escapeMLHtml(r.action||'—')}</td><td>${escapeMLHtml(r.reason||'—')}</td></tr>`).join('')}</tbody></table><details class="card"><summary>Respuesta técnica completa</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(JSON.stringify(data,null,2))}</pre></details>`;
+    out.innerHTML=`<table class="table"><thead><tr><th>Producto / publicación</th><th>SKU origen</th><th>Stock origen</th><th>Logística</th><th>Disponible ML</th><th>Propuesta</th><th>Resultado</th><th>Motivo</th></tr></thead><tbody>${rows.map(r=>`<tr><td><strong>${escapeMLHtml(r.product_name||r.title||'—')}</strong><br><small>${escapeMLHtml(r.ml_item_id||'')}</small></td><td>${escapeMLHtml(r.stock_source_sku||r.kit_origin_sku||r.sku||'—')}${r.pieces_per_kit?`<br><small>QTY: ${escapeMLHtml(r.pieces_per_kit)}</small>`:''}</td><td>${escapeMLHtml(r.stock_source_stock??'—')}</td><td>${escapeMLHtml(r.logistics||'—')}</td><td>${escapeMLHtml(r.current_ml_quantity??'—')}</td><td>${escapeMLHtml(r.target_quantity??'—')}</td><td>${escapeMLHtml(r.action||'—')}</td><td>${escapeMLHtml((r.reason||'—')+(r.http_status?' (HTTP '+r.http_status+')':''))}</td></tr>`).join('')}</tbody></table><details class="card"><summary>Respuesta técnica completa</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(JSON.stringify(data,null,2))}</pre></details>`;
     status.textContent='Vista previa terminada. No se realizaron cambios reales en Mercado Libre ni en el inventario.';
   }catch(e){status.textContent='No se pudo obtener la vista previa: '+(e?.message||String(e));out.innerHTML='<div class="status">No se modificaron publicaciones ni inventario. Si el mensaje indica sesión/token vencido, hay que renovar la conexión correspondiente.</div>'}
   finally{btn.disabled=false}
