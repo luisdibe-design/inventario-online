@@ -1876,3 +1876,27 @@ async function confirmSkuMapping(productId){
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind,{once:true});
   else bind();
 })();
+
+// Mercado Libre inventory sync — preview only. Never sends real marketplace updates.
+async function previewMercadoLibreInventorySync(){
+  const btn=document.getElementById('mlInventorySyncPreviewBtn');
+  const status=document.getElementById('mlInventorySyncPreviewStatus');
+  const summary=document.getElementById('mlInventorySyncPreviewSummary');
+  const out=document.getElementById('mlInventorySyncPreviewResults');
+  if(!btn||!status||!out)return;
+  if(typeof isAdminSession!=='function'||!isAdminSession()){status.textContent='Solo un administrador puede consultar esta vista previa.';return}
+  if(typeof activeBaseKey!=='undefined'&&activeBaseKey!=='bikebeat'){status.textContent='Cambia a la base Bikebeat para consultar la sincronización.';return}
+  btn.disabled=true;status.textContent='Consultando en modo de prueba…';summary.innerHTML='';out.innerHTML='';
+  try{
+    const {data,error}=await supa.functions.invoke('mercadolibre-inventory-sync',{body:{base_key:'bikebeat',mode:'preview'}});
+    if(error)throw error;
+    if(!data||data.ok!==true)throw new Error(data?.message||data?.detail||data?.error||'La función no devolvió una vista previa válida.');
+    const rows=Array.isArray(data.results)?data.results:(Array.isArray(data.items)?data.items:[]);
+    const counts={propuestas:rows.filter(r=>r.action==='update'||r.action==='would_update'||r.action==='preview').length,omitidos:rows.filter(r=>r.action==='skipped').length,errores:rows.filter(r=>r.action==='error'||r.reason==='item_fetch_failed').length};
+    summary.innerHTML=[['Publicaciones analizadas',rows.length],['Propuestas de cambio',counts.propuestas],['Omitidas / excluidas',counts.omitidos],['Errores',counts.errores]].map(([k,v])=>`<div class="card" style="margin:0;padding:12px"><div class="muted">${escapeMLHtml(k)}</div><div class="metric">${Number(v)||0}</div></div>`).join('');
+    if(!rows.length){out.innerHTML='<div class="status">La función respondió correctamente, pero no devolvió filas de resultados. Revisa el detalle técnico de la respuesta.</div><details class="card"><summary>Respuesta técnica</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(JSON.stringify(data,null,2))}</pre></details>';status.textContent='Vista previa recibida; sin filas.';return}
+    out.innerHTML=`<table class="table"><thead><tr><th>Producto / publicación</th><th>SKU origen</th><th>Stock origen</th><th>Logística</th><th>Disponible ML</th><th>Propuesta</th><th>Resultado</th><th>Motivo</th></tr></thead><tbody>${rows.map(r=>`<tr><td><strong>${escapeMLHtml(r.product_name||r.title||'—')}</strong><br><small>${escapeMLHtml(r.ml_item_id||'')}</small></td><td>${escapeMLHtml(r.stock_source_sku||r.kit_origin_sku||r.sku||'—')}${r.pieces_per_kit?`<br><small>QTY: ${escapeMLHtml(r.pieces_per_kit)}</small>`:''}</td><td>${escapeMLHtml(r.stock_source_stock??'—')}</td><td>${escapeMLHtml(r.logistics||'—')}</td><td>${escapeMLHtml(r.current_ml_quantity??'—')}</td><td>${escapeMLHtml(r.target_quantity??'—')}</td><td>${escapeMLHtml(r.action||'—')}</td><td>${escapeMLHtml(r.reason||'—')}</td></tr>`).join('')}</tbody></table><details class="card"><summary>Respuesta técnica completa</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(JSON.stringify(data,null,2))}</pre></details>`;
+    status.textContent='Vista previa terminada. No se realizaron cambios reales en Mercado Libre ni en el inventario.';
+  }catch(e){status.textContent='No se pudo obtener la vista previa: '+(e?.message||String(e));out.innerHTML='<div class="status">No se modificaron publicaciones ni inventario. Si el mensaje indica sesión/token vencido, hay que renovar la conexión correspondiente.</div>'}
+  finally{btn.disabled=false}
+}
