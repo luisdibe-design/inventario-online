@@ -126,3 +126,11 @@ Despliegue: descomprime el ZIP y sube el contenido de `v27` a la raíz del mismo
 ## Corrección del reporte de ventas ML (v68)
 - Se corrigió el nombre del campo de moneda para consultar `currency_id`, que es el campo real expuesto por la vista `mercadolibre_bikebeat_delivered_sales`.
 - Se actualizó el identificador de caché para forzar la carga de los archivos nuevos.
+
+## Módulo de publicaciones Mercado Libre Drop Off (V76)
+- Se agregó la pantalla administrativa `Publicaciones ML`, con búsqueda por nombre/SKU/ID, filtro de estado, orden alfabético y selección masiva.
+- El módulo invoca la Edge Function `mercadolibre-listing-manager` para consultar, pausar y reactivar publicaciones `xd_drop_off` de Bikebeat.
+- Las publicaciones Full u otras logísticas quedan excluidas.
+- Pausar/reactivar publicaciones no modifica existencias, movimientos ni reportes.
+- La Edge Function `mercadolibre-inventory-sync` v6 sigue en modo solo vista previa y omite publicaciones pausadas.
+- Antes de usar las acciones de pausa/reactivación, debe existir una conexión válida con permisos de lectura y escritura en Mercado Libre. Cada operación requiere confirmación explícita en pantalla.
