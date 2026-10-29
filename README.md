@@ -134,3 +134,15 @@ Despliegue: descomprime el ZIP y sube el contenido de `v27` a la raíz del mismo
 - Pausar/reactivar publicaciones no modifica existencias, movimientos ni reportes.
 - La Edge Function `mercadolibre-inventory-sync` v6 sigue en modo solo vista previa y omite publicaciones pausadas.
 - Antes de usar las acciones de pausa/reactivación, debe existir una conexión válida con permisos de lectura y escritura en Mercado Libre. Cada operación requiere confirmación explícita en pantalla.
+
+
+## Manejo de kits virtuales con receta de varios SKU (v79)
+- Al registrar una salida manual de un kit con receta activa en la base seleccionada, la app consulta `kit_recipes` y `kit_recipe_components`.
+- Calcula los kits disponibles con el componente más limitado (`floor(stock / cantidad requerida)`).
+- Antes de guardar, valida que haya existencias suficientes de todos los componentes.
+- Registra salidas de los SKU componentes, no del SKU virtual del kit, para evitar dejar el kit con inventario negativo.
+- Las salidas de componentes incluyen en notas el nombre y SKU del kit. El precio de venta del kit se distribuye proporcionalmente entre componentes para conservar el importe total del kit en el movimiento.
+- No cambia publicaciones de Mercado Libre ni toca existencias al sincronizar; este cambio afecta únicamente las salidas manuales capturadas desde Movimientos.
+- La app requiere que la receta ya exista en Supabase en la base correspondiente. Si la consulta de receta falla, la app muestra un error y no registra la salida del kit.
+
+Prueba previa recomendada: en Bikebeat, el kit `MTKITPRESPMP` usa `VERPARCH24`, `FIXESPT` y `FIXCAL1` (1 unidad de cada uno). Con existencias 320, 31 y 9, la disponibilidad teórica debe ser 9 kits. No hagas una salida real de prueba si no quieres modificar inventario.

@@ -96,6 +96,29 @@ function kitComponentConfig(product){
   return {quantityPerKit,componentSku};
 }
 function isConfiguredKit(product){return !!kitComponentConfig(product)}
+// Recetas de kits virtuales configuradas en Supabase. La consulta es de solo lectura.
+async function getDbKitRecipe(product){
+  if(!product?.id)return null;
+  const recipeResult=await supa.from('kit_recipes').select('id,active,notes').eq('kit_product_id',product.id).eq('active',true).limit(1);
+  if(recipeResult.error)throw new Error('No se pudo consultar la receta del kit: '+recipeResult.error.message);
+  const recipe=recipeResult.data?.[0];
+  if(!recipe)return null;
+  const componentResult=await supa.from('kit_recipe_components').select('component_product_id,quantity').eq('recipe_id',recipe.id);
+  if(componentResult.error)throw new Error('No se pudieron consultar los componentes del kit: '+componentResult.error.message);
+  if(!componentResult.data?.length)throw new Error('El kit tiene una receta activa, pero no tiene componentes configurados.');
+  const ids=componentResult.data.map(c=>c.component_product_id);
+  const productsResult=await supa.from('products').select('id,sku,name,stock,sale_price,purchase_price,active').in('id',ids);
+  if(productsResult.error)throw new Error('No se pudieron consultar existencias de los componentes: '+productsResult.error.message);
+  const byId=new Map((productsResult.data||[]).map(p=>[p.id,p]));
+  const components=componentResult.data.map(c=>({product:byId.get(c.component_product_id),quantity:Number(c.quantity||0)}));
+  if(components.some(c=>!c.product||c.quantity<=0))throw new Error('La receta del kit tiene un componente inexistente o una cantidad inválida.');
+  return {recipe,components};
+}
+async function getDbKitAvailable(product){
+  const recipe=await getDbKitRecipe(product);
+  if(!recipe)return null;
+  return Math.max(0,Math.min(...recipe.components.map(c=>Math.floor(Number(c.product.stock||0)/c.quantity))));
+}
 
 async function prepareInterbaseTransfer(product,qty,movementDate,orderRef,sourceSupplierName){
   // Nunca transferir un Kit configurado entre bases; la base activa consume el componente.
@@ -1094,10 +1117,13 @@ function changePendingQty(delta){const el=document.getElementById('confirmQty');
 function temporaryAvailable(p){const already=pendingLines.find(x=>x.product.id===p.id)?.quantity||0;return moveContext.type==='salida'?Math.max(0,Number(p.stock||0)-already):Number(p.stock||0)+already}
 function updateQtyHelp(){
   if(!pendingConfirmProduct)return;
-  const q=Math.max(1,Number(document.getElementById('confirmQty').value||1));
-  const already=pendingLines.find(x=>x.product.id===pendingConfirmProduct.id)?.quantity||0;
-  const available=Number(pendingConfirmProduct.stock||0)-already;
-  document.getElementById('qtyHelp').textContent=moveContext.type==='salida'?`Disponible temporalmente para esta captura: ${available} pieza(s).`:`Stock actual: ${Number(pendingConfirmProduct.stock||0)} pieza(s). Al guardar se actualizará con las cantidades capturadas.`;
+  const p=pendingConfirmProduct;
+  const already=pendingLines.find(x=>x.product.id===p.id)?.quantity||0;
+  const available=Number(p.stock||0)-already;
+  document.getElementById('qtyHelp').textContent=moveContext.type==='salida'?`Disponible temporalmente para esta captura: ${available} pieza(s).`:`Stock actual: ${Number(p.stock||0)} pieza(s). Al guardar se actualizará con las cantidades capturadas.`;
+  if(moveContext.type==='salida'){
+    getDbKitAvailable(p).then(n=>{if(n!==null&&pendingConfirmProduct?.id===p.id){document.getElementById('qtyHelp').textContent=`Kit virtual · disponibilidad calculada por componentes: ${n} kit(s). Se descontarán los SKU componentes, no el SKU del kit.`}}).catch(e=>{if(pendingConfirmProduct?.id===p.id)document.getElementById('qtyHelp').textContent=e.message});
+  }
 }
 document.addEventListener('input',e=>{if(e.target.id==='confirmQty')updateQtyHelp()});
 function cancelQuantity(){
@@ -1118,11 +1144,37 @@ async function confirmQuantity(){
   const p=pendingConfirmProduct,q=Math.floor(Number(document.getElementById('confirmQty').value||0));
   if(q<1)return;
   const existing=pendingLines.find(x=>x.product.id===p.id),already=existing?.quantity||0;
+  // Los kits con receta de varios SKU son virtuales: validar y convertir la venta en salidas
+  // de componentes; nunca modificar el stock del SKU del kit.
+  if(moveContext.type==='salida'){
+    let kitRecipe;
+    try{kitRecipe=await getDbKitRecipe(p)}catch(e){document.getElementById('qtyHelp').textContent=e.message;return}
+    if(kitRecipe){
+      const available=Math.max(0,Math.min(...kitRecipe.components.map(c=>Math.floor(Number(c.product.stock||0)/c.quantity))));
+      if(q>available){document.getElementById('qtyHelp').textContent=`Stock insuficiente para ${q} kit(s). Disponibles por componentes: ${available}. No se guardó la salida.`;return}
+      const totalWeight=kitRecipe.components.reduce((s,c)=>s+Math.max(0,Number(c.product.sale_price||0))*c.quantity,0);
+      for(const c of kitRecipe.components){
+        const componentQty=q*c.quantity;
+        const alloc=totalWeight>0?(Number(c.product.sale_price||0)*c.quantity/totalWeight)*Number(p.sale_price||0):Number(p.sale_price||0)/kitRecipe.components.length;
+        pendingLines.push({product:c.product,quantity:componentQty,_kitSaleName:p.name,_kitSaleSku:p.sku||'',_kitUnitPrice:alloc/Math.max(1,c.quantity)});
+      }
+      pendingConfirmProduct=null;
+      await saveMoveBatch();
+      document.getElementById('qtyConfirm').classList.add('hidden');
+      document.getElementById('selectedProduct').classList.add('hidden');
+      document.getElementById('productSearch').value='';
+      renderPendingLines();
+      const searchInput=document.getElementById('productSearch');
+      if(searchInput){searchInput.blur();searchInput.readOnly=true;}
+      clearTimeout(moveKeyboardHideTimer);focusProductSearchWithoutKeyboard();
+      return;
+    }
+  }
   // Permitir capturar la cantidad solicitada aunque falte stock local; saveMoveBatch
   // transferirá primero el faltante desde la otra base o mostrará el motivo si no es posible.
   if(moveContext.type==='salida' && !isConfiguredKit(p) && Number(p.stock||0)<already+q && activeBaseKey==='bikebeat'){document.getElementById('qtyHelp').textContent='Stock de Bikebeat insuficiente; se verificará ODKL para transferir únicamente las piezas faltantes.';}
   if(existing)existing.quantity+=q;else pendingLines.push({product:p,quantity:q});
-  // El botón Agregar también guarda inmediatamente el movimiento.
+  // El botón Agregar también guarda inmediatamente.
   // Así ya no existe un segundo botón de Guardar movimiento.
   await saveMoveBatch();
   pendingConfirmProduct=null;
@@ -1145,7 +1197,7 @@ function renderPendingLines(){
   if(btn) btn.disabled=!pendingLines.length;
   if(!pendingLines.length){out.className='status';out.textContent='Aún no has agregado productos.';return}
   const movementTotal=pendingLines.reduce((sum,x)=>sum+(moveContext.type==='entrada'?Number(x.product.purchase_price||0):Number(x.product.sale_price||0))*x.quantity,0);
-  out.className='';out.innerHTML='<table class="table"><tr><th>Producto</th><th>SKU</th><th>Stock disponible temporal</th><th>Piezas</th><th>Precio</th><th>Importe</th><th></th></tr>'+pendingLines.map(x=>{const price=moveContext.type==='entrada'?Number(x.product.purchase_price||0):Number(x.product.sale_price||0);const tempStock=moveContext.type==='salida'?Math.max(0,Number(x.product.stock||0)-x.quantity):Number(x.product.stock||0)+x.quantity;return `<tr><td>${esc(x.product.name)}</td><td>${esc(x.product.sku||'—')}</td><td><b>${tempStock}</b></td><td><button class="ghost" onclick="adjustLine('${escJs(x.product.id)}',-1)">−</button> <b>${x.quantity}</b> <button class="ghost" onclick="adjustLine('${escJs(x.product.id)}',1)">+</button></td><td>$${price.toFixed(2)}</td><td>$${(price*x.quantity).toFixed(2)}</td><td><button class="ghost" onclick="removeLine('${escJs(x.product.id)}')">Quitar</button></td></tr>`}).join('')+'</table>'+(isAdminSession()?'<div class="card" style="margin-top:10px"><b>Monto total del movimiento: '+moneyMX(movementTotal)+'</b></div>':'');
+  out.className='';out.innerHTML='<table class="table"><tr><th>Producto</th><th>SKU</th><th>Stock disponible temporal</th><th>Piezas</th><th>Precio</th><th>Importe</th><th></th></tr>'+pendingLines.map(x=>{const price=moveContext.type==='entrada'?Number(x.product.purchase_price||0):Number(x.product.sale_price||0);const tempStock=moveContext.type==='salida'?Math.max(0,Number(x.product.stock||0)-x.quantity):Number(x.product.stock||0)+x.quantity;return `<tr><td>${x._kitSaleName?`<small>Venta kit: ${esc(x._kitSaleName)}</small><br>`:''}${esc(x.product.name)}</td><td>${esc(x.product.sku||'—')}</td><td><b>${tempStock}</b></td><td><button class="ghost" onclick="adjustLine('${escJs(x.product.id)}',-1)">−</button> <b>${x.quantity}</b> <button class="ghost" onclick="adjustLine('${escJs(x.product.id)}',1)">+</button></td><td>$${price.toFixed(2)}</td><td>$${(price*x.quantity).toFixed(2)}</td><td><button class="ghost" onclick="removeLine('${escJs(x.product.id)}')">Quitar</button></td></tr>`}).join('')+'</table>'+(isAdminSession()?'<div class="card" style="margin-top:10px"><b>Monto total del movimiento: '+moneyMX(movementTotal)+'</b></div>':'');
 }
 async function nextOrderRef(p,dateStr){
   const dayPrefix=dateFolioPrefix(dateStr)+'_';
@@ -1295,7 +1347,7 @@ async function saveMoveBatch(){
       }
     }
   }
-  let rows=pendingLines.map(x=>({product_id:x.product.id,type:moveContext.type,quantity:x.quantity,unit_price:moveContext.type==='entrada'?Number(x.product.purchase_price||0):Number(x.product.sale_price||0),movement_date:movementDate,order_ref:orderRef,reference:marketplaceOrderRef||null,notes:marketplaceOrderRef?'Salida manual Mercado Libre · pedido '+marketplaceOrderRef:null,user_id:user.id,supplier_id:moveContext.type==='entrada'?moveContext.partyId:null,customer_id:moveContext.type==='salida'?moveContext.partyId:null}));
+  let rows=pendingLines.map(x=>({product_id:x.product.id,type:moveContext.type,quantity:x.quantity,unit_price:moveContext.type==='entrada'?Number(x.product.purchase_price||0):(Number.isFinite(Number(x._kitUnitPrice))?Number(x._kitUnitPrice):Number(x.product.sale_price||0)),movement_date:movementDate,order_ref:orderRef,reference:marketplaceOrderRef||null,notes:x._kitSaleName?`Venta kit virtual ${x._kitSaleName} (${x._kitSaleSku||'sin SKU kit'}) · componente ${x.product.sku||x.product.name}${marketplaceOrderRef?' · pedido '+marketplaceOrderRef:''}`:(marketplaceOrderRef?'Salida manual Mercado Libre · pedido '+marketplaceOrderRef:null),user_id:user.id,supplier_id:moveContext.type==='entrada'?moveContext.partyId:null,customer_id:moveContext.type==='salida'?moveContext.partyId:null}));
   let interbaseTransfers=[];
   if(moveContext.type==='entrada'){
     const supplierName=moveContext.partyName||'';
