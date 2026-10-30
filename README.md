@@ -146,3 +146,13 @@ Despliegue: descomprime el ZIP y sube el contenido de `v27` a la raíz del mismo
 - La app requiere que la receta ya exista en Supabase en la base correspondiente. Si la consulta de receta falla, la app muestra un error y no registra la salida del kit.
 
 Prueba previa recomendada: en Bikebeat, el kit `MTKITPRESPMP` usa `VERPARCH24`, `FIXESPT` y `FIXCAL1` (1 unidad de cada uno). Con existencias 320, 31 y 9, la disponibilidad teórica debe ser 9 kits. No hagas una salida real de prueba si no quieres modificar inventario.
+
+
+## Módulo administrativo de Kits virtuales (V80)
+- Agrega el botón `Kits virtuales` al menú del Dashboard, disponible para administradores.
+- Permite seleccionar el producto que representa el kit y agregar cualquier número de SKU componentes.
+- Cada componente tiene su propia cantidad entera de piezas por kit (por ejemplo, SKU A × 2, SKU B × 1 y SKU C × 1). La cantidad por defecto es 1 y puede editarse.
+- Permite guardar, editar, activar/desactivar recetas y consultar cuántos kits podrían prepararse según las existencias actuales del componente más limitado.
+- Guardar una receta no modifica stock, movimientos ni publicaciones. Las salidas manuales de kits con receta activa usan las cantidades configuradas para calcular el consumo de cada SKU componente.
+- Incluye `supabase_migration_v80_kits_virtuales.sql`. Ejecutar ese SQL en los proyectos Supabase de Bikebeat y ODKL si las tablas/políticas no existen aún en ambas bases. No es necesario ejecutar una migración de interfaz en Vercel; sí hay que desplegar el contenido del ZIP.
+- El módulo no debe considerarse validado para ventas reales hasta probar con una receta de prueba y confirmar los movimientos generados.

@@ -107,7 +107,7 @@
 <div id="mlInventorySyncPreviewSummary" class="grid" style="margin-top:12px"></div>
 <div id="mlInventorySyncPreviewResults" style="margin-top:12px;overflow-x:auto"></div>
 </details>
-<div class="tabs dashboard-tabs"><button data-role-tab="products" onclick="tab('products')">Productos</button><button data-role-tab="move" onclick="tab('move')">Movimientos</button><button data-role-tab="suppliers" onclick="tab('suppliers')">Proveedores/Clientes</button><button data-role-tab="reports" onclick="tab('reports')">Reportes</button><button data-role-tab="returns" onclick="tab('returns')">Devoluciones</button><button data-role-tab="mlListings" onclick="tab('mlListings')">Publicaciones ML</button></div>
+<div class="tabs dashboard-tabs"><button data-role-tab="products" onclick="tab('products')">Productos</button><button data-role-tab="move" onclick="tab('move')">Movimientos</button><button data-role-tab="suppliers" onclick="tab('suppliers')">Proveedores/Clientes</button><button data-role-tab="reports" onclick="tab('reports')">Reportes</button><button data-role-tab="returns" onclick="tab('returns')">Devoluciones</button><button data-role-tab="mlListings" onclick="tab('mlListings')">Publicaciones ML</button><button data-role-tab="kits" onclick="tab('kits')">Kits virtuales</button></div>
 </div></section>
 <section id="products" class="card hidden app-screen"><div class="screen-nav"><button type="button" class="ghost" onclick="tab('dashboard')">← Dashboard</button></div><h2 class="screen-title-with-base">Productos <span class="base-screen-label" data-base-label></span> <button type="button" class="ghost products-switch-base" onclick="switchBase()">Cambiar base</button></h2><div class="row"><button class="warehouse-edit" onclick="toggleNewProduct()">+ Crear producto nuevo</button><input id="q" placeholder="SKU, código o nombre" oninput="scheduleProductSearch()"><button type="button" class="ghost" onclick="startProductScan('q')">📷 Escanear</button><button onclick="loadProducts()">Actualizar</button></div><div id="newProductBox" class="hidden editbox" style="margin-top:12px"><h3 style="margin-top:0">Crear producto nuevo</h3><div class="editgrid"><label>SKU <span class="muted">(opcional si capturas código)</span><input id="new-sku" placeholder="SKU del producto"></label><label>Producto <span class="muted">(obligatorio)</span><input id="new-name" placeholder="Nombre del producto" required></label><label>Código de barras <span class="muted">(opcional si capturas SKU)</span><div class="row"><input id="new-barcode" placeholder="Código de barras"><button type="button" class="ghost" onclick="startProductScan('new-barcode')">📷 Escanear</button></div></label><label>Unidad<select id="new-unit"><option value="pieza" selected>Pieza</option><option value="caja">Caja</option><option value="paquete">Paquete</option><option value="bolsa">Bolsa</option><option value="bulto">Bulto</option><option value="par">Par</option><option value="docena">Docena</option><option value="kilogramo">Kilogramo (kg)</option><option value="gramo">Gramo (g)</option><option value="litro">Litro (L)</option><option value="mililitro">Mililitro (ml)</option><option value="metro">Metro (m)</option><option value="centimetro">Centímetro (cm)</option><option value="rollo">Rollo</option><option value="tarima">Tarima</option></select></label><label>Precio de compra<input id="new-purchase" type="number" step="0.01" min="0" value="0" oninput="syncSaleFromPurchase('new-purchase','new-sale')"></label><label>Precio de venta<input id="new-sale" type="number" step="0.01" min="0" value="0"></label><label>Stock<input id="new-stock" type="number" step="0.01" min="0" value="0"></label><label>Stock mínimo<input id="new-min" type="number" step="0.01" min="0" value="0"></label><label>Estado<select id="new-active"><option value="true" selected>Activo</option><option value="false">Inactivo</option></select></label><label style="display:flex;align-items:center;gap:8px"><input id="new-exclude-trello" type="checkbox" style="width:auto"> Excluir de alertas de Trello</label><label>Descripción<input id="new-desc" placeholder="Descripción del producto"></label></div><div class="row" style="margin-top:10px"><button onclick="createProduct()">Guardar producto</button><button class="ghost" onclick="toggleNewProduct(false)">Cancelar</button></div><div id="newProductMsg" class="status"></div></div><div id="productScannerHome"></div><div id="productScanner" class="hidden scanner-panel" style="margin-top:10px"><div><b>Escanear código de barras</b></div><div class="scanner-view"><video id="productVideo" class="scanner-frame" playsinline muted></video><div class="scanner-guide"><i></i></div></div><div class="scanner-actions"><button type="button" class="ghost" onclick="stopProductScan()">Cerrar cámara</button></div><div id="productScanMsg" class="status"></div></div><p class="muted">SKU y código de barras son campos independientes. Puedes editar ambos, además de nombre, precio de compra, precio de venta, stock, unidad y descripción. Los cambios se guardan directamente en la nube.</p><div id="productListControls" style="margin-top:12px"></div><div id="productsOut"></div></section>
 <section id="move" class="card hidden app-screen movement-screen">
@@ -169,6 +169,19 @@
 </div>
 </section>
 <section id="suppliers" class="card hidden app-screen"><div class="screen-nav"><button type="button" class="ghost" onclick="tab('dashboard')">← Dashboard</button></div><h2>Prov/Cliente <span class="base-screen-label" data-base-label></span></h2><p class="muted">Selecciona qué tipo de registro deseas administrar.</p><div class="row" style="margin-bottom:12px"><button id="partyModeSupplier" onclick="setPartyMode('supplier')">Proveedor</button><button id="partyModeCustomer" class="ghost" onclick="setPartyMode('customer')">Paqueteria</button></div><div id="partySupplierBox"><h3 style="margin-top:0">Nuevo proveedor</h3><div class="row"><input id="supName" placeholder="Nombre del proveedor"><input id="supPhone" placeholder="Teléfono"><input id="supEmail" type="email" placeholder="Correo"><input id="supNotes" placeholder="Notas"><button type="button" onclick="saveSupplier()">Agregar proveedor</button></div><div id="supMsg" class="status"></div><div id="suppliersOut"></div></div><div id="partyCustomerBox" class="hidden"><h3 style="margin-top:0">Nueva paqueteria</h3><div class="row"><input id="cusName" placeholder="Nombre de la paqueteria"><input id="cusPhone" placeholder="Teléfono"><input id="cusEmail" type="email" placeholder="Correo"><input id="cusNotes" placeholder="Notas"><button type="button" onclick="saveCustomer()">Agregar paqueteria</button></div><div id="cusMsg" class="status"></div><div id="customersOut"></div></div></section>
+<section id="kits" class="card hidden app-screen admin-only-section"><div class="screen-nav"><button type="button" class="ghost" onclick="tab('dashboard')">← Dashboard</button></div>
+<h2>Kits virtuales <span class="base-screen-label" data-base-label></span></h2>
+<p class="muted">Configura aquí cada kit y los SKU físicos que lo componen. La cantidad se define por componente: normalmente 1, pero puedes indicar 2, 3 o más piezas de un mismo SKU. Este módulo solo guarda recetas; no modifica existencias ni crea movimientos.</p>
+<div class="editbox"><h3 style="margin-top:0">Configurar kit</h3>
+<label>Producto que representa el kit<select id="kitProductSelect"><option value="">Cargando productos…</option></select></label>
+<label style="display:block;margin-top:10px">Notas (opcional)<input id="kitRecipeNotes" placeholder="Ej. kit de 3 productos para publicación ML"></label>
+<div class="row" style="margin-top:12px;align-items:center;justify-content:space-between"><h3 style="margin:0">Componentes del kit</h3><button type="button" class="ghost" onclick="addKitComponentRow()">+ Agregar SKU componente</button></div>
+<div id="kitComponentsEditor" style="margin-top:8px"></div>
+<div id="kitEditorStatus" class="status" role="status"></div>
+<div class="row" style="margin-top:10px"><button type="button" onclick="saveKitRecipe()">Guardar receta</button><button type="button" class="ghost" onclick="resetKitEditor()">Nuevo / Limpiar</button></div></div>
+<div class="row" style="margin-top:14px;align-items:center"><h3 style="margin:0;flex:1">Recetas registradas en esta base</h3><button type="button" class="ghost" onclick="loadKitModule()">Actualizar</button></div>
+<div id="kitRecipesStatus" class="status" role="status">Las recetas se consultan en la base activa.</div><div id="kitRecipesOut" style="margin-top:8px;overflow-x:auto"></div>
+</section>
 <section id="mlListings" class="card hidden app-screen admin-only-section"><div class="screen-nav"><button type="button" class="ghost" onclick="tab('dashboard')">← Dashboard</button></div>
 <h2>Administrar publicaciones de Mercado Libre · Bikebeat</h2>
 <p class="muted">Módulo independiente para publicaciones <b>Drop Off (xd_drop_off)</b>. Orden alfabético, selección masiva y control manual de pausa/reactivación. No modifica inventario, movimientos ni reportes; las publicaciones Full se excluyen.</p>
@@ -247,7 +260,7 @@ supa=dbClients[activeBaseKey];
 function selectBaseFromLogin(){const v=document.getElementById('baseSelect')?.value;if(!v||!BASES[v])return;activeBaseKey=v;localStorage.setItem('inventarioBase',v);location.reload()}
 async function switchBase(){
   // Conservar la pantalla desde la que se pulsa Cambiar base (especialmente Productos).
-  const screenIds=['dashboard','products','move','suppliers','reports','returns','users'];
+  const screenIds=['dashboard','products','move','suppliers','reports','returns','users','mlListings','kits'];
   const returnToScreen=screenIds.find(id=>{const el=document.getElementById(id);return el&&!el.classList.contains('hidden')})||'dashboard';
   const next=activeBaseKey==='bikebeat'?'odkl':'bikebeat';
   const msg=document.getElementById('baseBadge');
@@ -396,7 +409,7 @@ async function applyInterbaseTransfer(transfer,qty,movementDate,orderRef){
 
 function localDate(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function dateFolioPrefix(dateStr){const parts=String(dateStr||localDate()).split('-');if(parts.length===3)return `${parts[2]}${parts[1]}${parts[0].slice(-2)}`;const d=new Date(dateStr||Date.now());return `${String(d.getDate()).padStart(2,'0')}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getFullYear()).slice(-2)}`}
-function canTab(id){const r=profile?.role||'consulta';if(id==='dashboard')return true;if(id==='mlListings')return r==='admin';if(id==='users')return r==='admin';if(id==='suppliers')return r==='admin'||r==='almacen';if(id==='move')return r==='admin'||r==='almacen'||r==='ventas';if(id==='returns')return r==='admin'||r==='almacen';if(id==='products')return true;if(id==='reports')return true;return false}
+function canTab(id){const r=profile?.role||'consulta';if(id==='dashboard')return true;if(id==='mlListings'||id==='kits')return r==='admin';if(id==='users')return r==='admin';if(id==='suppliers')return r==='admin'||r==='almacen';if(id==='move')return r==='admin'||r==='almacen'||r==='ventas';if(id==='returns')return r==='admin'||r==='almacen';if(id==='products')return true;if(id==='reports')return true;return false}
 function isAdminSession(){return profile?.role==='admin'}
 function moneyMX(v){return '$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}
 async function calculateInventorySaleValue(){
@@ -591,7 +604,77 @@ async function processMercadoLibreNotifications(){
   }catch(e){console.error('Mercado Libre notification dry-run failed',e);const detail={message:e?.message||String(e),name:e?.name||'Error',context:e?.context||null};status.textContent='No se pudo completar la simulación. Abre el detalle técnico para revisar el error.';out.innerHTML=`<div class="card" style="padding:10px"><strong>Falló el análisis de notificaciones</strong><p>${escapeMLHtml(detail.message)}</p><details open><summary>Detalle técnico del error</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(JSON.stringify(detail,null,2))}</pre></details></div>`}
   finally{btn.disabled=false}
 }
-function tab(id){if(!canTab(id))return;['dashboard','products','move','suppliers','reports','returns','users','mlListings'].forEach(x=>document.getElementById(x).classList.toggle('hidden',x!==id));if(window.dashboardTimer){clearInterval(window.dashboardTimer);window.dashboardTimer=null;}if(id==='dashboard'){dash();window.dashboardTimer=setInterval(()=>dash(),30000);}if(id==='products')loadProducts();if(id==='move'){loadParties();loadMovementPartyMenu();}if(id==='suppliers'){setPartyMode(partyMode);loadSuppliers();loadCustomers();}if(id==='returns'){setReturnType(returnType);}if(id==='users')loadUsers();if(id==='mlListings')loadMLListings();}
+
+// Administración de recetas de kits virtuales. Las cantidades se guardan por SKU componente.
+let kitModuleProducts=[];
+let kitEditingRecipeId=null;
+let kitComponentRowCounter=0;
+function kitEsc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+async function fetchAllKitProducts(){let all=[],from=0,step=1000;while(true){const {data,error}=await supa.from('products').select('id,sku,name,stock,active').order('name').range(from,from+step-1);if(error)throw error;all=all.concat(data||[]);if(!data||data.length<step)break;from+=step;}return all}
+async function loadKitModule(){
+ const status=document.getElementById('kitRecipesStatus');if(!status)return;
+ status.textContent='Cargando productos y recetas de '+activeBaseName()+'…';
+ try{
+  kitModuleProducts=await fetchAllKitProducts();
+  const select=document.getElementById('kitProductSelect');
+  const old=select.value;
+  select.innerHTML='<option value="">Selecciona el SKU que representa el kit</option>'+kitModuleProducts.map(p=>`<option value="${kitEsc(p.id)}">${kitEsc(p.sku||'Sin SKU')} · ${kitEsc(p.name)}${p.active===false?' (INACTIVO)':''}</option>`).join('');
+  if(old&&kitModuleProducts.some(p=>p.id===old))select.value=old;
+  if(!document.querySelector('#kitComponentsEditor .kit-component-row'))addKitComponentRow();
+  const {data:recipes,error}=await supa.from('kit_recipes').select('id,kit_product_id,active,notes').eq('base_key',activeBaseKey).order('created_at',{ascending:false});
+  if(error)throw error;
+  const rows=[];
+  for(const recipe of recipes||[]){
+   const kit=kitModuleProducts.find(p=>p.id===recipe.kit_product_id);
+   const {data:comps,error:ce}=await supa.from('kit_recipe_components').select('component_product_id,quantity').eq('recipe_id',recipe.id);
+   if(ce)throw ce;
+   const compText=(comps||[]).map(c=>{const prod=kitModuleProducts.find(p=>p.id===c.component_product_id);return `${prod?.sku||'SKU no encontrado'} × ${Number(c.quantity||0)}`}).join('<br>');
+   const avail=(comps||[]).length?Math.max(0,Math.min(...comps.map(c=>{const prod=kitModuleProducts.find(p=>p.id===c.component_product_id);return prod?Math.floor(Number(prod.stock||0)/Number(c.quantity||1)):0}))):0;
+   rows.push(`<tr><td><b>${kitEsc(kit?.sku||'SKU kit no encontrado')}</b><br>${kitEsc(kit?.name||'Producto no encontrado')}</td><td>${compText||'Sin componentes'}</td><td>${avail}</td><td>${recipe.active?'Activa':'Inactiva'}</td><td><button type="button" class="ghost" onclick="editKitRecipe('${kitEsc(recipe.id)}')">Editar</button> <button type="button" class="ghost" onclick="toggleKitRecipe('${kitEsc(recipe.id)}',${!recipe.active})">${recipe.active?'Desactivar':'Activar'}</button></td></tr>`);
+  }
+  document.getElementById('kitRecipesOut').innerHTML=rows.length?`<table class="table"><thead><tr><th>Kit</th><th>Componentes y piezas por kit</th><th>Kits posibles ahora</th><th>Estado</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table>`:'<div class="status">Todavía no hay recetas de kits guardadas en esta base.</div>';
+  status.textContent=`Base ${activeBaseName()}: ${kitModuleProducts.length} productos consultados y ${(recipes||[]).length} receta(s). La consulta no modifica existencias.`;
+ }catch(e){console.error('KIT_MODULE_LOAD',e);status.textContent='No se pudo cargar el módulo: '+(e?.message||String(e));}
+}
+function addKitComponentRow(productId='',quantity=1){
+ const host=document.getElementById('kitComponentsEditor');if(!host)return;
+ const id=++kitComponentRowCounter;
+ const opts='<option value="">Selecciona SKU componente</option>'+kitModuleProducts.filter(p=>p.active!==false).map(p=>`<option value="${kitEsc(p.id)}" ${p.id===productId?'selected':''}>${kitEsc(p.sku||'Sin SKU')} · ${kitEsc(p.name)} (stock: ${Number(p.stock||0)})</option>`).join('');
+ const row=document.createElement('div');row.className='kit-component-row editgrid';row.dataset.rowId=String(id);row.style.cssText='grid-template-columns:minmax(220px,1fr) 130px auto;align-items:end;margin:8px 0;padding:10px;border:1px solid #343b45;border-radius:10px';
+ row.innerHTML=`<label>SKU componente<select class="kit-component-product">${opts}</select></label><label>Piezas por kit<input class="kit-component-qty" type="number" min="1" step="1" value="${Math.max(1,Math.floor(Number(quantity)||1))}"></label><button type="button" class="ghost" onclick="this.closest('.kit-component-row').remove()">Quitar</button>`;
+ host.appendChild(row);
+}
+function resetKitEditor(){kitEditingRecipeId=null;document.getElementById('kitProductSelect').value='';document.getElementById('kitRecipeNotes').value='';document.getElementById('kitComponentsEditor').innerHTML='';document.getElementById('kitEditorStatus').textContent='';addKitComponentRow();}
+async function editKitRecipe(id){
+ const status=document.getElementById('kitEditorStatus');status.textContent='Cargando receta…';
+ try{const {data:recipe,error}=await supa.from('kit_recipes').select('id,kit_product_id,active,notes').eq('id',id).single();if(error)throw error;const {data:comps,error:ce}=await supa.from('kit_recipe_components').select('component_product_id,quantity').eq('recipe_id',id);if(ce)throw ce;
+  kitEditingRecipeId=id;document.getElementById('kitProductSelect').value=recipe.kit_product_id;document.getElementById('kitRecipeNotes').value=recipe.notes||'';const host=document.getElementById('kitComponentsEditor');host.innerHTML='';(comps||[]).forEach(c=>addKitComponentRow(c.component_product_id,c.quantity));if(!(comps||[]).length)addKitComponentRow();status.textContent='Editando receta existente. Al guardar se actualizarán sus componentes; el inventario no se modifica.';document.getElementById('kitProductSelect').scrollIntoView({behavior:'smooth',block:'center'});
+ }catch(e){status.textContent='No se pudo abrir la receta: '+(e?.message||String(e));}
+}
+async function saveKitRecipe(){
+ const status=document.getElementById('kitEditorStatus');if(!isAdminSession())return status.textContent='Solo un administrador puede configurar kits.';
+ const kitId=document.getElementById('kitProductSelect').value;const notes=document.getElementById('kitRecipeNotes').value.trim();
+ const rows=[...document.querySelectorAll('#kitComponentsEditor .kit-component-row')].map(row=>({component_product_id:row.querySelector('.kit-component-product').value,quantity:Number(row.querySelector('.kit-component-qty').value)})).filter(x=>x.component_product_id);
+ if(!kitId)return status.textContent='Selecciona el producto/SKU que representa el kit.';
+ if(!rows.length)return status.textContent='Agrega por lo menos un SKU componente.';
+ if(rows.some(x=>!Number.isInteger(x.quantity)||x.quantity<1))return status.textContent='Cada cantidad debe ser un número entero de piezas igual o mayor que 1.';
+ if(rows.some(x=>x.component_product_id===kitId))return status.textContent='El SKU del kit no puede ser también uno de sus propios componentes.';
+ if(new Set(rows.map(x=>x.component_product_id)).size!==rows.length)return status.textContent='Hay un SKU componente repetido. Combina sus cantidades en una sola fila.';
+ const kit=kitModuleProducts.find(p=>p.id===kitId);if(!kit)return status.textContent='No se encontró el producto seleccionado.';
+ if(rows.some(x=>kitModuleProducts.find(p=>p.id===x.component_product_id)?.active===false))return status.textContent='No se pueden usar productos inactivos como componentes.';
+ status.textContent='Guardando receta…';
+ try{
+  let recipeId=kitEditingRecipeId;
+  if(!recipeId){const {data:existing,error:findErr}=await supa.from('kit_recipes').select('id').eq('base_key',activeBaseKey).eq('kit_product_id',kitId).limit(1);if(findErr)throw findErr;recipeId=existing?.[0]?.id||null;}
+  if(recipeId){const {error}=await supa.from('kit_recipes').update({active:true,notes:notes||null}).eq('id',recipeId);if(error)throw error;const {error:delErr}=await supa.from('kit_recipe_components').delete().eq('recipe_id',recipeId);if(delErr)throw delErr;}
+  else {const {data,error}=await supa.from('kit_recipes').insert({base_key:activeBaseKey,kit_product_id:kitId,active:true,notes:notes||null}).select('id').single();if(error)throw error;recipeId=data.id;}
+  const {error:insertErr}=await supa.from('kit_recipe_components').insert(rows.map(x=>({recipe_id:recipeId,component_product_id:x.component_product_id,quantity:x.quantity})));if(insertErr)throw insertErr;
+  status.textContent=`Receta guardada para ${kit.sku||kit.name}: ${rows.length} SKU componente(s). No se modificó el inventario.`;kitEditingRecipeId=recipeId;await loadKitModule();
+ }catch(e){console.error('KIT_RECIPE_SAVE',e);status.textContent='No se pudo guardar la receta: '+(e?.message||String(e))+'. Revisa que la migración de tablas kit_recipes/kit_recipe_components esté aplicada en esta base.';}
+}
+async function toggleKitRecipe(id,active){if(!isAdminSession())return;const verb=active?'activar':'desactivar';if(!confirm(`¿Deseas ${verb} esta receta? No se modificarán existencias.`))return;const status=document.getElementById('kitRecipesStatus');try{const {error}=await supa.from('kit_recipes').update({active}).eq('id',id);if(error)throw error;await loadKitModule();status.textContent=`Receta ${active?'activada':'desactivada'}. El inventario no cambió.`;}catch(e){status.textContent='No se pudo cambiar el estado de la receta: '+(e?.message||String(e));}}
+
+function tab(id){if(!canTab(id))return;['dashboard','products','move','suppliers','reports','returns','users','mlListings','kits'].forEach(x=>document.getElementById(x).classList.toggle('hidden',x!==id));if(window.dashboardTimer){clearInterval(window.dashboardTimer);window.dashboardTimer=null;}if(id==='dashboard'){dash();window.dashboardTimer=setInterval(()=>dash(),30000);}if(id==='products')loadProducts();if(id==='move'){loadParties();loadMovementPartyMenu();}if(id==='suppliers'){setPartyMode(partyMode);loadSuppliers();loadCustomers();}if(id==='returns'){setReturnType(returnType);}if(id==='users')loadUsers();if(id==='mlListings')loadMLListings();if(id==='kits')loadKitModule();}
 document.addEventListener('DOMContentLoaded',()=>{['email','password'].forEach(id=>{const el=document.getElementById(id);el?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();login()}})});});
 async function login(){const emailEl=document.getElementById('email'),passwordEl=document.getElementById('password'),msg=document.getElementById('loginMsg');if(!supa)return msg.textContent='Configura primero Supabase.';const e=emailEl.value.trim(),pw=passwordEl.value;loginPassword=pw;if(!e||!pw){msg.textContent='Escribe tu correo y contraseña.';return}msg.textContent='Conectando con Supabase…';try{const result=await Promise.race([supa.auth.signInWithPassword({email:e,password:pw}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('TIMEOUT')),15000))]);const {data,error}=result;if(error){msg.textContent=(error.code?error.code+': ':'')+error.message;return}if(!data?.user){msg.textContent='No se recibió un usuario válido.';return}msg.textContent='Acceso correcto. Cargando…';await start(data.user)}catch(err){console.error('LOGIN_ERROR',err);if(err?.message==='TIMEOUT'){msg.textContent='No responde el servidor de acceso. Verificando conexión…'}else{msg.textContent='Error de conexión. Verificando Supabase…'}try{const r=await fetch(CFG.url+'/auth/v1/settings',{headers:{apikey:CFG.key}});if(r.ok){msg.textContent='Supabase responde correctamente. El problema está en el inicio de sesión; revisa correo/contraseña.'}else{msg.textContent='Supabase respondió HTTP '+r.status+'. Abre la app de nuevo e inténtalo.'}}catch(testErr){console.error('SUPABASE_NETWORK_TEST',testErr);msg.textContent='No se puede conectar con Supabase desde este navegador. Prueba con datos móviles u otro navegador y desactiva VPN/bloqueadores.'}}}
 async function signup(){const emailEl=document.getElementById('email'),passwordEl=document.getElementById('password'),msg=document.getElementById('loginMsg');const e=emailEl.value.trim(),pw=passwordEl.value;loginPassword=pw;if(!e||!pw){msg.textContent='Para crear la cuenta escribe correo y contraseña.';return}if(pw.length<6){msg.textContent='La contraseña debe tener al menos 6 caracteres.';return}msg.textContent='Creando cuenta…';const {data,error}=await supa.auth.signUp({email:e,password:pw,options:{data:{full_name:e.split('@')[0]},emailRedirectTo:location.origin+'/'}});if(error){msg.textContent=error.message;return}if(data.session&&data.user){msg.textContent='Cuenta creada. Entrando…';await start(data.user)}else{msg.textContent='Cuenta creada. Revisa tu correo para confirmar la cuenta y después entra.'}}
@@ -1462,7 +1545,7 @@ async function saveMoveBatch(){
       const counterpartSupplier=await getCounterpartSupplier();
       for(const line of pendingLines){
         // Kits QTY/SKU se completan con su componente en la base activa; no transferir el Kit.
-        if(isConfiguredKit(line.product)) continue;
+        if(line._kitSaleName || isConfiguredKit(line.product)) continue;
         const localStock=Number(line.product.stock||0);
         const shortage=Math.max(0,Number(line.quantity||0)-localStock);
         if(!shortage)continue;
@@ -1521,7 +1604,7 @@ async function saveMoveBatch(){
       const counterpartSupplier=await getCounterpartSupplier();
       for(const line of pendingLines){
         // Kits QTY/SKU se completan con su componente en la base activa; no transferir el Kit.
-        if(isConfiguredKit(line.product)) continue;
+        if(line._kitSaleName || isConfiguredKit(line.product)) continue;
         const localStock=Number(line.product.stock||0);
         const shortage=Math.max(0,Number(line.quantity||0)-localStock);
         if(!shortage)continue;
@@ -1568,7 +1651,7 @@ async function saveMoveBatch(){
   }
   if(moveContext.type==='salida'){
     for(const line of pendingLines){
-      if(isConfiguredKit(line.product)) continue;
+      if(line._kitSaleName || isConfiguredKit(line.product)) continue;
       if(Number(line.product.stock||0)<line.quantity){
         for(const t of shortageTransfers){
           try{

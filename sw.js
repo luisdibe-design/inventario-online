@@ -1,4 +1,4 @@
-const CACHE_NAME='inventario-online-v79';
+const CACHE_NAME='inventario-online-v80';
 const APP_SHELL = [
   "./",
   "./index.html",
