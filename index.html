@@ -2347,10 +2347,26 @@ async function parseFullInboundPdf(){
   const pdf=await pdfjsLib.getDocument({data}).promise;
   let allLines=[];
   for(let p=1;p<=pdf.numPages;p++){
-   const page=await pdf.getPage(p),content=await page.getTextContent(),groups=new Map();
-   for(const it of content.items){if(!it.str||!it.str.trim())continue;const y=Math.round(it.transform[5]*2)/2; if(!groups.has(y))groups.set(y,[]);groups.get(y).push({x:it.transform[4],s:it.str.trim()});}
-   const ys=[...groups.keys()].sort((a,b)=>b-a);
-   for(const y of ys){const arr=groups.get(y).sort((a,b)=>a.x-b.x);allLines.push({y,items:arr,left:arr.filter(x=>x.x<360).map(x=>x.s).join(' ').replace(/\s+/g,' ').trim(),middle:arr.filter(x=>x.x>=330&&x.x<440).map(x=>x.s).join(' ').replace(/\s+/g,' ').trim(),all:arr.map(x=>x.s).join(' ').replace(/\s+/g,' ').trim()});}
+   const page=await pdf.getPage(p),content=await page.getTextContent();
+   const items=content.items.filter(it=>it.str&&it.str.trim()).map(it=>({x:it.transform[4],y:it.transform[5],s:it.str.trim()})).sort((a,b)=>b.y-a.y||a.x-b.x);
+   // Mercado Libre coloca UNIDADES en una columna independiente y su línea base
+   // puede diferir varios puntos de la línea de Código ML. Agrupamos por cercanía vertical.
+   const bands=[];
+   for(const it of items){
+    let band=bands.find(g=>Math.abs(g.y-it.y)<=4.5);
+    if(!band){band={y:it.y,items:[]};bands.push(band)}
+    band.items.push(it);
+   }
+   bands.sort((a,b)=>b.y-a.y);
+   for(const g of bands){
+    const arr=g.items.sort((a,b)=>a.x-b.x);
+    allLines.push({
+     y:g.y,items:arr,
+     left:arr.filter(x=>x.x<230).map(x=>x.s).join(' ').replace(/\s+/g,' ').trim(),
+     quantity:arr.filter(x=>x.x>=210&&x.x<280).map(x=>x.s).join(' ').replace(/\s+/g,' ').trim(),
+     all:arr.map(x=>x.s).join(' ').replace(/\s+/g,' ').trim()
+    });
+   }
   }
   const starts=[];allLines.forEach((l,i)=>{if(/Código\s*ML\s*:/i.test(l.all))starts.push(i)});
   const rows=[];
@@ -2359,19 +2375,22 @@ async function parseFullInboundPdf(){
    const first=block[0],fullText=block.map(x=>x.left).filter(Boolean).join(' ');
    const ml=(first.all.match(/Código\s*ML\s*:\s*([A-Z0-9]+)/i)||[])[1]||'';
    let qty=NaN;
-   for(const line of block.slice(0,3)){const m=(line.middle+' '+line.all).match(/\b(\d{1,4})\s*(?:Etiquetado|Código universal)/i);if(m){qty=Number(m[1]);break}}
-   if(!Number.isFinite(qty)){const m=first.all.match(/\s{2,}(\d{1,4})\s{2,}/);if(m)qty=Number(m[1])}
+   for(const line of block){
+    const candidates=(line.quantity||'').match(/\b\d{1,4}\b/g)||[];
+    if(candidates.length){qty=Number(candidates[0]);break}
+   }
+   if(!Number.isFinite(qty)){
+    for(const line of block){const m=line.all.match(/\b(\d{1,4})\s+Etiquetado\b/i);if(m){qty=Number(m[1]);break}}
+   }
    let sku=(fullText.match(/\bSKU\s*:\s*([A-Z0-9_-]+)/i)||[])[1]||'';
    if(!sku){const m=fullText.match(/Código universal:\s*(?:N\/A\s*)?([A-Z0-9_-]{3,})/i);if(m&&m[1]!=='N/A')sku=m[1]}
    if(sku==='-'||sku==='N/A')sku='';
-   const descLines=block.map(x=>x.left).filter(Boolean).filter(s=>!/Código\s*ML\s*:|Código universal:|SKU\s*:|Etiquetado obligatorio|PARSED FROM|PARSED TEXT|INSTRUCCIONES DE PREPARACIÓN/i.test(s));
+   const descLines=block.map(x=>x.left).filter(Boolean).filter(t=>!/Código\s*ML\s*:|Código universal:|SKU\s*:|Etiquetado obligatorio|PARSED FROM|PARSED TEXT|INSTRUCCIONES DE PREPARACIÓN/i.test(t));
    let description=descLines.join(' ').replace(/\s+/g,' ').trim();
    description=description.replace(/^\d{8,14}\s*/,'').replace(/\b(obligatorio|Código universal)\b/gi,'').trim();
-   if(ml&&Number.isFinite(qty)){
-    rows.push({sku,ml_code:ml,description,quantity:qty});
-   }
+   if(ml&&Number.isFinite(qty)&&qty>0)rows.push({sku,ml_code:ml,description,quantity:qty});
   }
-  fullInboundRows=rows;
+  fullInboundRows=rows;fullInboundPlan=[];
   const text=allLines.map(x=>x.all).join(' ');
   fullInboundMeta.shipment=(text.match(/Envío\s*#\s*(\d+)/i)||[])[1]||'';
   fullInboundMeta.products=(text.match(/Productos del envío:\s*(\d+)/i)||[])[1]||rows.length;
@@ -2380,8 +2399,8 @@ async function parseFullInboundPdf(){
   document.getElementById('fullInboundExcelBtn').disabled=!rows.length;
   document.getElementById('fullInboundSearch').value='';
   renderFullInboundRows();
-  status.textContent=rows.length===163?'PDF leído correctamente. Se extrajeron los 163 productos. No se modificó inventario.':`PDF leído. Se extrajeron ${rows.length} productos; revisa el desglose antes de exportar. No se modificó inventario.`;
-  await resolveFullInboundInventory();
+  status.textContent=rows.length===Number(fullInboundMeta.products)?`PDF leído correctamente. Se extrajeron los ${rows.length} productos. No se modificó inventario.`:`PDF leído. Se extrajeron ${rows.length} de ${fullInboundMeta.products} productos; revisa el desglose. No se modificó inventario.`;
+  if(rows.length)await resolveFullInboundInventory();
  }catch(e){console.error(e);status.textContent='No se pudo leer el PDF: '+(e?.message||String(e))}
  finally{btn.disabled=false}
 }

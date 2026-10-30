@@ -164,3 +164,6 @@ Prueba previa recomendada: en Bikebeat, el kit `MTKITPRESPMP` usa `VERPARCH24`, 
 - En las salidas de kits virtuales, los movimientos de los componentes conservan su precio de venta unitario vigente; no se usa el precio guardado en el SKU virtual.
 - No se sobrescriben los precios de compra/venta guardados en los SKU componentes ni en el SKU virtual, y no se actualizan publicaciones de Mercado Libre.
 - La consulta de precios no modifica existencias. El descuento de inventario sigue realizándose únicamente al registrar la salida del kit.
+
+
+V84: Correccion de lectura PDF Full. Agrupa elementos de texto por cercania vertical y toma la cantidad desde la columna UNIDADES. Validado contra el PDF de envio 79907961: 163 productos y 2313 unidades. Sin cambios de inventario.
