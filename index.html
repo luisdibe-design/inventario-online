@@ -53,7 +53,7 @@
 .ml-status-pill{display:inline-block;border:1px solid #4a5360;border-radius:999px;padding:3px 7px;font-size:11px;white-space:normal}
 .ml-hist-detail{max-width:360px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto}
 #mlTestCard>summary{list-style:none}#mlTestCard>summary::-webkit-details-marker{display:none}#mlTestCard>summary:after{content:"＋";float:right;color:#a9b0ba}#mlTestCard[open]>summary:after{content:"−"}
-</style>
+ .dashboard-tabs{display:flex;flex-direction:column;gap:10px;width:100%;margin-top:14px}.dashboard-tabs button{width:100%;min-height:48px;text-align:left;justify-content:flex-start;padding:13px 16px;white-space:normal}.full-inbound-table-wrap{overflow-x:auto;margin-top:12px}.full-inbound-table{min-width:760px;width:100%;border-collapse:collapse}.full-inbound-table th,.full-inbound-table td{padding:9px;border-bottom:1px solid var(--line);text-align:left}.full-inbound-summary{display:flex;gap:12px;flex-wrap:wrap}.full-inbound-summary .status{flex:1;min-width:140px} @media(max-width:700px){.dashboard-tabs{display:flex;flex-direction:column}.dashboard-tabs button{width:100%;min-width:0;flex:none}}\n</style>
 <style>
 .scanner-panel{padding:12px;border:1px solid #2b313a;border-radius:14px;background:#0d1014;position:sticky;top:76px;z-index:40;box-shadow:0 10px 28px rgba(0,0,0,.34)}
 .scanner-frame{width:100%;height:300px;min-height:260px;max-height:360px;object-fit:cover;display:block;border-radius:12px;background:#050607;aspect-ratio:16/9;transform:translateZ(0)}
@@ -107,8 +107,20 @@
 <div id="mlInventorySyncPreviewSummary" class="grid" style="margin-top:12px"></div>
 <div id="mlInventorySyncPreviewResults" style="margin-top:12px;overflow-x:auto"></div>
 </details>
-<div class="tabs dashboard-tabs"><button data-role-tab="products" onclick="tab('products')">Productos</button><button data-role-tab="move" onclick="tab('move')">Movimientos</button><button data-role-tab="suppliers" onclick="tab('suppliers')">Proveedores/Clientes</button><button data-role-tab="reports" onclick="tab('reports')">Reportes</button><button data-role-tab="returns" onclick="tab('returns')">Devoluciones</button><button data-role-tab="mlListings" onclick="tab('mlListings')">Publicaciones ML</button><button data-role-tab="kits" onclick="tab('kits')">Kits virtuales</button></div>
+<div class="tabs dashboard-tabs"><button data-role-tab="products" onclick="tab('products')">Productos</button><button data-role-tab="move" onclick="tab('move')">Movimientos</button><button data-role-tab="suppliers" onclick="tab('suppliers')">Proveedores/Clientes</button><button data-role-tab="reports" onclick="tab('reports')">Reportes</button><button data-role-tab="returns" onclick="tab('returns')">Devoluciones</button><button data-role-tab="mlListings" onclick="tab('mlListings')">Publicaciones ML</button><button data-role-tab="kits" onclick="tab('kits')">Kits virtuales</button><button data-role-tab="fullInbound" onclick="tab('fullInbound')">Consulta de envío Full entrante</button></div>
 </div></section>
+<section id="fullInbound" class="card hidden app-screen admin-only-section">
+<div class="screen-nav"><button type="button" class="ghost" onclick="tab('dashboard')">← Dashboard</button></div>
+<h2>Consulta de envío Full entrante · Solo lectura <span class="base-screen-label" data-base-label></span></h2>
+<p class="muted">Sube el PDF de preparación de Mercado Libre Full. Se extraen los productos y cantidades sin modificar existencias, movimientos ni publicaciones.</p>
+<div class="row" style="align-items:end"><label style="flex:1">Archivo PDF del envío<input id="fullInboundPdf" type="file" accept="application/pdf,.pdf"></label><button type="button" id="fullInboundParseBtn" onclick="parseFullInboundPdf()">Leer PDF</button></div>
+<div id="fullInboundStatus" class="status" role="status">Selecciona el PDF de tu envío Full.</div>
+<div id="fullInboundSummary" class="full-inbound-summary"></div>
+<div class="status" style="margin-top:10px">La comparación consulta ambas bases. Se propone descontar primero de Bikebeat y completar con ODKL. La consulta y el cálculo no modifican existencias ni movimientos.</div>
+<div class="row" style="margin-top:12px;align-items:end"><label style="flex:1">Buscar por SKU, código ML o descripción<input id="fullInboundSearch" type="search" placeholder="Buscar producto..." oninput="renderFullInboundRows()"></label><button type="button" onclick="resolveFullInboundInventory()">Consultar existencias Bikebeat + ODKL</button><button type="button" class="ghost" id="fullInboundExcelBtn" onclick="exportFullInboundExcel()" disabled>Exportar Excel</button></div>
+<div id="fullInboundInventoryStatus" class="status">Después de leer el PDF, consulta las existencias en ambas bases.</div>
+<div id="fullInboundRows" class="full-inbound-table-wrap"></div>
+</section>
 <section id="products" class="card hidden app-screen"><div class="screen-nav"><button type="button" class="ghost" onclick="tab('dashboard')">← Dashboard</button></div><h2 class="screen-title-with-base">Productos <span class="base-screen-label" data-base-label></span> <button type="button" class="ghost products-switch-base" onclick="switchBase()">Cambiar base</button></h2><div class="row"><button class="warehouse-edit" onclick="toggleNewProduct()">+ Crear producto nuevo</button><input id="q" placeholder="SKU, código o nombre" oninput="scheduleProductSearch()"><button type="button" class="ghost" onclick="startProductScan('q')">📷 Escanear</button><button onclick="loadProducts()">Actualizar</button></div><div id="newProductBox" class="hidden editbox" style="margin-top:12px"><h3 style="margin-top:0">Crear producto nuevo</h3><div class="editgrid"><label>SKU <span class="muted">(opcional si capturas código)</span><input id="new-sku" placeholder="SKU del producto"></label><label>Producto <span class="muted">(obligatorio)</span><input id="new-name" placeholder="Nombre del producto" required></label><label>Código de barras <span class="muted">(opcional si capturas SKU)</span><div class="row"><input id="new-barcode" placeholder="Código de barras"><button type="button" class="ghost" onclick="startProductScan('new-barcode')">📷 Escanear</button></div></label><label>Unidad<select id="new-unit"><option value="pieza" selected>Pieza</option><option value="caja">Caja</option><option value="paquete">Paquete</option><option value="bolsa">Bolsa</option><option value="bulto">Bulto</option><option value="par">Par</option><option value="docena">Docena</option><option value="kilogramo">Kilogramo (kg)</option><option value="gramo">Gramo (g)</option><option value="litro">Litro (L)</option><option value="mililitro">Mililitro (ml)</option><option value="metro">Metro (m)</option><option value="centimetro">Centímetro (cm)</option><option value="rollo">Rollo</option><option value="tarima">Tarima</option></select></label><label>Precio de compra<input id="new-purchase" type="number" step="0.01" min="0" value="0" oninput="syncSaleFromPurchase('new-purchase','new-sale')"></label><label>Precio de venta<input id="new-sale" type="number" step="0.01" min="0" value="0"></label><label>Stock<input id="new-stock" type="number" step="0.01" min="0" value="0"></label><label>Stock mínimo<input id="new-min" type="number" step="0.01" min="0" value="0"></label><label>Estado<select id="new-active"><option value="true" selected>Activo</option><option value="false">Inactivo</option></select></label><label style="display:flex;align-items:center;gap:8px"><input id="new-exclude-trello" type="checkbox" style="width:auto"> Excluir de alertas de Trello</label><label>Descripción<input id="new-desc" placeholder="Descripción del producto"></label></div><div class="row" style="margin-top:10px"><button onclick="createProduct()">Guardar producto</button><button class="ghost" onclick="toggleNewProduct(false)">Cancelar</button></div><div id="newProductMsg" class="status"></div></div><div id="productScannerHome"></div><div id="productScanner" class="hidden scanner-panel" style="margin-top:10px"><div><b>Escanear código de barras</b></div><div class="scanner-view"><video id="productVideo" class="scanner-frame" playsinline muted></video><div class="scanner-guide"><i></i></div></div><div class="scanner-actions"><button type="button" class="ghost" onclick="stopProductScan()">Cerrar cámara</button></div><div id="productScanMsg" class="status"></div></div><p class="muted">SKU y código de barras son campos independientes. Puedes editar ambos, además de nombre, precio de compra, precio de venta, stock, unidad y descripción. Los cambios se guardan directamente en la nube.</p><div id="productListControls" style="margin-top:12px"></div><div id="productsOut"></div></section>
 <section id="move" class="card hidden app-screen movement-screen">
 <div class="movement-screen-title"><h2 class="movement-title">Movimientos <span class="base-screen-label" data-base-label></span></h2><div class="screen-nav"><button type="button" class="ghost" onclick="tab('dashboard')">← Dashboard</button></div></div>
@@ -260,7 +272,7 @@ supa=dbClients[activeBaseKey];
 function selectBaseFromLogin(){const v=document.getElementById('baseSelect')?.value;if(!v||!BASES[v])return;activeBaseKey=v;localStorage.setItem('inventarioBase',v);location.reload()}
 async function switchBase(){
   // Conservar la pantalla desde la que se pulsa Cambiar base (especialmente Productos).
-  const screenIds=['dashboard','products','move','suppliers','reports','returns','users','mlListings','kits'];
+  const screenIds=['dashboard','products','move','suppliers','reports','returns','users','mlListings','kits','fullInbound'];
   const returnToScreen=screenIds.find(id=>{const el=document.getElementById(id);return el&&!el.classList.contains('hidden')})||'dashboard';
   const next=activeBaseKey==='bikebeat'?'odkl':'bikebeat';
   const msg=document.getElementById('baseBadge');
@@ -409,7 +421,7 @@ async function applyInterbaseTransfer(transfer,qty,movementDate,orderRef){
 
 function localDate(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function dateFolioPrefix(dateStr){const parts=String(dateStr||localDate()).split('-');if(parts.length===3)return `${parts[2]}${parts[1]}${parts[0].slice(-2)}`;const d=new Date(dateStr||Date.now());return `${String(d.getDate()).padStart(2,'0')}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getFullYear()).slice(-2)}`}
-function canTab(id){const r=profile?.role||'consulta';if(id==='dashboard')return true;if(id==='mlListings'||id==='kits')return r==='admin';if(id==='users')return r==='admin';if(id==='suppliers')return r==='admin'||r==='almacen';if(id==='move')return r==='admin'||r==='almacen'||r==='ventas';if(id==='returns')return r==='admin'||r==='almacen';if(id==='products')return true;if(id==='reports')return true;return false}
+function canTab(id){const r=profile?.role||'consulta';if(id==='dashboard')return true;if(id==='mlListings'||id==='kits'||id==='fullInbound')return r==='admin';if(id==='users')return r==='admin';if(id==='suppliers')return r==='admin'||r==='almacen';if(id==='move')return r==='admin'||r==='almacen'||r==='ventas';if(id==='returns')return r==='admin'||r==='almacen';if(id==='products')return true;if(id==='reports')return true;return false}
 function isAdminSession(){return profile?.role==='admin'}
 function moneyMX(v){return '$'+Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}
 async function calculateInventorySaleValue(){
@@ -677,7 +689,7 @@ async function saveKitRecipe(){
 }
 async function toggleKitRecipe(id,active){if(!isAdminSession())return;const verb=active?'activar':'desactivar';if(!confirm(`¿Deseas ${verb} esta receta? No se modificarán existencias.`))return;const status=document.getElementById('kitRecipesStatus');try{const {error}=await supa.from('kit_recipes').update({active}).eq('id',id);if(error)throw error;await loadKitModule();status.textContent=`Receta ${active?'activada':'desactivada'}. El inventario no cambió.`;}catch(e){status.textContent='No se pudo cambiar el estado de la receta: '+(e?.message||String(e));}}
 
-function tab(id){if(!canTab(id))return;['dashboard','products','move','suppliers','reports','returns','users','mlListings','kits'].forEach(x=>document.getElementById(x).classList.toggle('hidden',x!==id));if(window.dashboardTimer){clearInterval(window.dashboardTimer);window.dashboardTimer=null;}if(id==='dashboard'){dash();window.dashboardTimer=setInterval(()=>dash(),30000);}if(id==='products')loadProducts();if(id==='move'){loadParties();loadMovementPartyMenu();}if(id==='suppliers'){setPartyMode(partyMode);loadSuppliers();loadCustomers();}if(id==='returns'){setReturnType(returnType);}if(id==='users')loadUsers();if(id==='mlListings')loadMLListings();if(id==='kits')loadKitModule();}
+function tab(id){if(!canTab(id))return;['dashboard','products','move','suppliers','reports','returns','users','mlListings','kits','fullInbound'].forEach(x=>document.getElementById(x).classList.toggle('hidden',x!==id));if(window.dashboardTimer){clearInterval(window.dashboardTimer);window.dashboardTimer=null;}if(id==='dashboard'){dash();window.dashboardTimer=setInterval(()=>dash(),30000);}if(id==='products')loadProducts();if(id==='move'){loadParties();loadMovementPartyMenu();}if(id==='suppliers'){setPartyMode(partyMode);loadSuppliers();loadCustomers();}if(id==='returns'){setReturnType(returnType);}if(id==='users')loadUsers();if(id==='mlListings')loadMLListings();if(id==='kits')loadKitModule();}
 document.addEventListener('DOMContentLoaded',()=>{['email','password'].forEach(id=>{const el=document.getElementById(id);el?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();login()}})});});
 async function login(){const emailEl=document.getElementById('email'),passwordEl=document.getElementById('password'),msg=document.getElementById('loginMsg');if(!supa)return msg.textContent='Configura primero Supabase.';const e=emailEl.value.trim(),pw=passwordEl.value;loginPassword=pw;if(!e||!pw){msg.textContent='Escribe tu correo y contraseña.';return}msg.textContent='Conectando con Supabase…';try{const result=await Promise.race([supa.auth.signInWithPassword({email:e,password:pw}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('TIMEOUT')),15000))]);const {data,error}=result;if(error){msg.textContent=(error.code?error.code+': ':'')+error.message;return}if(!data?.user){msg.textContent='No se recibió un usuario válido.';return}msg.textContent='Acceso correcto. Cargando…';await start(data.user)}catch(err){console.error('LOGIN_ERROR',err);if(err?.message==='TIMEOUT'){msg.textContent='No responde el servidor de acceso. Verificando conexión…'}else{msg.textContent='Error de conexión. Verificando Supabase…'}try{const r=await fetch(CFG.url+'/auth/v1/settings',{headers:{apikey:CFG.key}});if(r.ok){msg.textContent='Supabase responde correctamente. El problema está en el inicio de sesión; revisa correo/contraseña.'}else{msg.textContent='Supabase respondió HTTP '+r.status+'. Abre la app de nuevo e inténtalo.'}}catch(testErr){console.error('SUPABASE_NETWORK_TEST',testErr);msg.textContent='No se puede conectar con Supabase desde este navegador. Prueba con datos móviles u otro navegador y desactiva VPN/bloqueadores.'}}}
 async function signup(){const emailEl=document.getElementById('email'),passwordEl=document.getElementById('password'),msg=document.getElementById('loginMsg');const e=emailEl.value.trim(),pw=passwordEl.value;loginPassword=pw;if(!e||!pw){msg.textContent='Para crear la cuenta escribe correo y contraseña.';return}if(pw.length<6){msg.textContent='La contraseña debe tener al menos 6 caracteres.';return}msg.textContent='Creando cuenta…';const {data,error}=await supa.auth.signUp({email:e,password:pw,options:{data:{full_name:e.split('@')[0]},emailRedirectTo:location.origin+'/'}});if(error){msg.textContent=error.message;return}if(data.session&&data.user){msg.textContent='Cuenta creada. Entrando…';await start(data.user)}else{msg.textContent='Cuenta creada. Revisa tu correo para confirmar la cuenta y después entra.'}}
@@ -2233,6 +2245,7 @@ async function bootAuth(){if(!supa)return;const bs=document.getElementById('base
 if(supa){supa.auth.onAuthStateChange((event,session)=>{if(event==='SIGNED_OUT'){document.getElementById('app').classList.add('hidden');document.getElementById('login').classList.remove('hidden');return}if(event==='SIGNED_IN' && session?.user && !user)start(session.user);});window.addEventListener('load',bootAuth)}
 if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));}</script>
 <div id="skuMappingModal" class="hidden" style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);padding:18px;overflow:auto"><div class="card" style="max-width:760px;margin:5vh auto"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><h3 style="margin:0">Confirmar equivalencia SKU</h3><button type="button" class="ghost" onclick="closeSkuMapping()">Cerrar</button></div><p id="skuMappingInfo" class="muted"></p><label for="skuProductSearch">Buscar producto de Inventario Online por SKU, código de barras o nombre</label><input id="skuProductSearch" placeholder="Escribe SKU, código de barras o descripción" style="width:100%;margin-top:8px" oninput="searchSkuProducts()"><div id="skuProductResults" style="margin-top:10px;max-height:45vh;overflow:auto"></div><p id="skuMappingStatus" class="muted"></p></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 let pendingSkuMapping=null, skuSearchTimer=null;
 function openSkuMapping(btn){
@@ -2318,5 +2331,114 @@ async function previewMercadoLibreInventorySync(){
   }catch(e){status.textContent='No se pudo obtener la vista previa: '+(e?.message||String(e));out.innerHTML='<div class="status">No se modificaron publicaciones ni inventario. Si el mensaje indica sesión/token vencido, hay que renovar la conexión correspondiente.</div>'}
   finally{btn.disabled=false}
 }
+
+// Consulta de envío Full entrante: lectura local del PDF, sin acciones de inventario.
+if(window.pdfjsLib)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+let fullInboundRows=[];
+let fullInboundPlan=[];
+let fullInboundMeta={shipment:'',products:0,units:0};
+async function parseFullInboundPdf(){
+ const input=document.getElementById('fullInboundPdf'),status=document.getElementById('fullInboundStatus'),btn=document.getElementById('fullInboundParseBtn');
+ const file=input?.files?.[0]; if(!file){status.textContent='Selecciona primero el PDF del envío.';return}
+ if(!window.pdfjsLib){status.textContent='No se pudo cargar el lector PDF. Revisa tu conexión e inténtalo de nuevo.';return}
+ btn.disabled=true;status.textContent='Leyendo PDF y extrayendo productos…';
+ try{
+  const data=new Uint8Array(await file.arrayBuffer());
+  const pdf=await pdfjsLib.getDocument({data}).promise;
+  let allLines=[];
+  for(let p=1;p<=pdf.numPages;p++){
+   const page=await pdf.getPage(p),content=await page.getTextContent(),groups=new Map();
+   for(const it of content.items){if(!it.str||!it.str.trim())continue;const y=Math.round(it.transform[5]*2)/2; if(!groups.has(y))groups.set(y,[]);groups.get(y).push({x:it.transform[4],s:it.str.trim()});}
+   const ys=[...groups.keys()].sort((a,b)=>b-a);
+   for(const y of ys){const arr=groups.get(y).sort((a,b)=>a.x-b.x);allLines.push({y,items:arr,left:arr.filter(x=>x.x<360).map(x=>x.s).join(' ').replace(/\s+/g,' ').trim(),middle:arr.filter(x=>x.x>=330&&x.x<440).map(x=>x.s).join(' ').replace(/\s+/g,' ').trim(),all:arr.map(x=>x.s).join(' ').replace(/\s+/g,' ').trim()});}
+  }
+  const starts=[];allLines.forEach((l,i)=>{if(/Código\s*ML\s*:/i.test(l.all))starts.push(i)});
+  const rows=[];
+  for(let k=0;k<starts.length;k++){
+   const a=starts[k],b=starts[k+1]??allLines.length,block=allLines.slice(a,b);
+   const first=block[0],fullText=block.map(x=>x.left).filter(Boolean).join(' ');
+   const ml=(first.all.match(/Código\s*ML\s*:\s*([A-Z0-9]+)/i)||[])[1]||'';
+   let qty=NaN;
+   for(const line of block.slice(0,3)){const m=(line.middle+' '+line.all).match(/\b(\d{1,4})\s*(?:Etiquetado|Código universal)/i);if(m){qty=Number(m[1]);break}}
+   if(!Number.isFinite(qty)){const m=first.all.match(/\s{2,}(\d{1,4})\s{2,}/);if(m)qty=Number(m[1])}
+   let sku=(fullText.match(/\bSKU\s*:\s*([A-Z0-9_-]+)/i)||[])[1]||'';
+   if(!sku){const m=fullText.match(/Código universal:\s*(?:N\/A\s*)?([A-Z0-9_-]{3,})/i);if(m&&m[1]!=='N/A')sku=m[1]}
+   if(sku==='-'||sku==='N/A')sku='';
+   const descLines=block.map(x=>x.left).filter(Boolean).filter(s=>!/Código\s*ML\s*:|Código universal:|SKU\s*:|Etiquetado obligatorio|PARSED FROM|PARSED TEXT|INSTRUCCIONES DE PREPARACIÓN/i.test(s));
+   let description=descLines.join(' ').replace(/\s+/g,' ').trim();
+   description=description.replace(/^\d{8,14}\s*/,'').replace(/\b(obligatorio|Código universal)\b/gi,'').trim();
+   if(ml&&Number.isFinite(qty)){
+    rows.push({sku,ml_code:ml,description,quantity:qty});
+   }
+  }
+  fullInboundRows=rows;
+  const text=allLines.map(x=>x.all).join(' ');
+  fullInboundMeta.shipment=(text.match(/Envío\s*#\s*(\d+)/i)||[])[1]||'';
+  fullInboundMeta.products=(text.match(/Productos del envío:\s*(\d+)/i)||[])[1]||rows.length;
+  fullInboundMeta.units=(text.match(/Total de unidades:\s*(\d+)/i)||[])[1]||rows.reduce((s,r)=>s+r.quantity,0);
+  document.getElementById('fullInboundSummary').innerHTML=`<div class="status"><b>Envío #${fullInboundMeta.shipment||'—'}</b><br>Productos: ${fullInboundMeta.products}</div><div class="status"><b>Total de unidades</b><br>${fullInboundMeta.units}</div><div class="status"><b>Productos extraídos</b><br>${rows.length}</div>`;
+  document.getElementById('fullInboundExcelBtn').disabled=!rows.length;
+  document.getElementById('fullInboundSearch').value='';
+  renderFullInboundRows();
+  status.textContent=rows.length===163?'PDF leído correctamente. Se extrajeron los 163 productos. No se modificó inventario.':`PDF leído. Se extrajeron ${rows.length} productos; revisa el desglose antes de exportar. No se modificó inventario.`;
+  await resolveFullInboundInventory();
+ }catch(e){console.error(e);status.textContent='No se pudo leer el PDF: '+(e?.message||String(e))}
+ finally{btn.disabled=false}
+}
+async function findFullInboundProduct(dbKey,sku){
+ if(!sku)return null;
+ const client=dbClients[dbKey];
+ const {data,error}=await client.from('products').select('id,sku,name,stock,purchase_price,sale_price').ilike('sku',sku).limit(3);
+ if(error)throw new Error(`${dbKey==='bikebeat'?'Bikebeat':'ODKL'} · ${error.message}`);
+ if((data||[]).length>1)throw new Error(`El SKU ${sku} está duplicado en ${dbKey==='bikebeat'?'Bikebeat':'ODKL'}. Se requiere revisión manual.`);
+ return data?.[0]||null;
+}
+async function resolveFullInboundInventory(){
+ const status=document.getElementById('fullInboundInventoryStatus');
+ if(!fullInboundRows.length){status.textContent='Primero carga un PDF.';return}
+ status.textContent='Consultando existencias en Bikebeat y ODKL…';
+ const btns=[...document.querySelectorAll('#fullInbound button')];btns.forEach(b=>b.disabled=true);
+ try{
+  // Requiere sesión autenticada en ambas bases; nunca cambia la base activa de la pantalla.
+  for(const key of ['bikebeat','odkl']){
+   const c=dbClients[key];let sess=(await c.auth.getSession()).data?.session;
+   if(!sess?.user){if(!user?.email||!loginPassword)throw new Error(`No hay sesión disponible en ${key==='bikebeat'?'Bikebeat':'ODKL'}. Cierra sesión y vuelve a entrar para habilitar ambas bases.`);const login=await c.auth.signInWithPassword({email:user.email,password:loginPassword});if(login.error)throw new Error(`No se pudo autenticar en ${key==='bikebeat'?'Bikebeat':'ODKL'}: ${login.error.message}`)}
+  }
+  const plan=[];
+  for(const row of fullInboundRows){
+   const bb=await findFullInboundProduct('bikebeat',row.sku);
+   const od=await findFullInboundProduct('odkl',row.sku);
+   const requested=Number(row.quantity)||0,bbStock=Math.max(0,Number(bb?.stock)||0),odStock=Math.max(0,Number(od?.stock)||0);
+   const fromBikebeat=bb?Math.min(requested,bbStock):0;
+   const remaining=Math.max(0,requested-fromBikebeat);
+   const fromOdkl=od?Math.min(remaining,odStock):0;
+   plan.push({...row,bikebeat_product:bb,odkl_product:od,bikebeat_stock:bbStock,odkl_stock:odStock,bikebeat_deduct:fromBikebeat,odkl_deduct:fromOdkl,shortage:Math.max(0,remaining-fromOdkl)});
+  }
+  fullInboundPlan=plan;
+  const covered=plan.filter(r=>!r.shortage).length,short=plan.filter(r=>r.shortage).length;
+  const bbTotal=plan.reduce((a,r)=>a+r.bikebeat_deduct,0),odTotal=plan.reduce((a,r)=>a+r.odkl_deduct,0),shortTotal=plan.reduce((a,r)=>a+r.shortage,0);
+  status.textContent=`Comparación lista: ${covered} productos cubiertos; ${short} con faltante. Propuesta: Bikebeat ${bbTotal} pzas · ODKL ${odTotal} pzas · Faltantes ${shortTotal} pzas. No se modificó inventario ni se crearon movimientos.`;
+  renderFullInboundRows();
+ }catch(e){console.error('FULL_INBOUND_STOCK_LOOKUP',e);status.textContent='No se pudo completar la comparación: '+(e?.message||String(e));fullInboundPlan=[];renderFullInboundRows()}
+ finally{btns.forEach(b=>b.disabled=false);const excel=document.getElementById('fullInboundExcelBtn');if(excel)excel.disabled=!fullInboundRows.length}
+}
+function renderFullInboundRows(){
+ const out=document.getElementById('fullInboundRows');if(!out)return;
+ const q=(document.getElementById('fullInboundSearch')?.value||'').trim().toLocaleLowerCase('es-MX');
+ const source=fullInboundPlan.length?fullInboundPlan:fullInboundRows;
+ const rows=source.filter(r=>[r.sku,r.ml_code,r.description,r.bikebeat_product?.sku,r.odkl_product?.sku].join(' ').toLocaleLowerCase('es-MX').includes(q));
+ if(!rows.length){out.innerHTML='<div class="status">No hay productos para mostrar con este filtro.</div>';return}
+ const esc=escapeMLHtml;
+ out.innerHTML='<table class="full-inbound-table"><thead><tr><th>SKU PDF</th><th>Código ML</th><th>Descripción</th><th>Solicitado</th><th>SKU Bikebeat</th><th>Stock BB</th><th>Descontar BB</th><th>SKU ODKL</th><th>Stock ODKL</th><th>Descontar ODKL</th><th>Faltante</th></tr></thead><tbody>'+rows.map(r=>`<tr><td>${esc(r.sku||'—')}</td><td>${esc(r.ml_code||'—')}</td><td>${esc(r.description||'—')}</td><td>${r.quantity}</td><td>${esc(r.bikebeat_product?.sku||'Sin relación')}</td><td>${r.bikebeat_product?r.bikebeat_stock:'—'}</td><td>${r.bikebeat_deduct??'—'}</td><td>${esc(r.odkl_product?.sku||'Sin relación')}</td><td>${r.odkl_product?r.odkl_stock:'—'}</td><td>${r.odkl_deduct??'—'}</td><td>${r.shortage??'Pendiente de consulta'}</td></tr>`).join('')+'</tbody></table>';
+}
+function exportFullInboundExcel(){
+ if(!fullInboundRows.length||!window.XLSX){alert('No hay datos para exportar.');return}
+ const source=fullInboundPlan.length?fullInboundPlan:fullInboundRows;
+ const data=source.map(r=>({'SKU del PDF':r.sku,'Código ML':r.ml_code,'Descripción del producto':r.description,'Cantidad planificada':r.quantity,'SKU relacionado Bikebeat':r.bikebeat_product?.sku||'Sin relación','Existencia Bikebeat':r.bikebeat_product?r.bikebeat_stock:'','Descuento propuesto Bikebeat':r.bikebeat_deduct??'','SKU relacionado ODKL':r.odkl_product?.sku||'Sin relación','Existencia ODKL':r.odkl_product?r.odkl_stock:'','Descuento propuesto ODKL':r.odkl_deduct??'','Faltante':r.shortage??''}));
+ const ws=XLSX.utils.json_to_sheet(data),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Plan Full');
+ ws['!cols']=[{wch:20},{wch:16},{wch:60},{wch:16},{wch:22},{wch:16},{wch:20},{wch:22},{wch:16},{wch:20},{wch:12}];
+ XLSX.writeFile(wb,`Plan_Envio_Full_${fullInboundMeta.shipment||'desglose'}.xlsx`);
+}
+
 </script>
 </body></html>
