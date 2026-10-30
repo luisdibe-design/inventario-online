@@ -1,8 +1,8 @@
-const CACHE_NAME='inventario-online-v81';
+const CACHE_NAME='inventario-online-v89';
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./manifest.webmanifest?v=81",
+  "./manifest.webmanifest?v=89",
   "./icon-192-v2.png",
   "./icon-512-v2.png",
   "./favicon-64-v2.png",

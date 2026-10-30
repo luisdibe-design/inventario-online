@@ -170,3 +170,13 @@ V84: Correccion de lectura PDF Full. Agrupa elementos de texto por cercania vert
 
 
 V85: Asignacion manual y permanente de SKU para productos Full sin SKU de origen. Busca productos en Bikebeat u ODKL, guarda la relacion por codigo ML en Bikebeat y vuelve a calcular existencias. Incluye migracion supabase_migration_v85_full_sku_mappings.sql. No modifica inventario ni movimientos al guardar una relacion.
+
+
+## V89 — Kits virtuales desglosados en Consulta Full
+- La consulta Full identifica SKU con receta virtual activa en Bikebeat u ODKL.
+- Cada kit se expande a sus componentes según las cantidades configuradas en `kit_recipe_components`; por ejemplo, `VERTUBCMCJ40` requiere 40 piezas de `VERTUBCEM` por kit.
+- La asignación de existencias prioriza Bikebeat y utiliza ODKL solo para cubrir faltantes de cada componente.
+- La tabla y Excel muestran SKU del kit, componente, cantidad por kit, piezas requeridas, stock inicial, descuento propuesto, stock final y faltante por base.
+- Los componentes compartidos entre distintos kits o renglones acumulan el consumo para evitar contar dos veces el mismo stock.
+- La consulta sigue siendo de solo lectura: no crea movimientos ni modifica existencias.
+- Requiere que las recetas de kits estén activas y que las tablas `kit_recipes` y `kit_recipe_components` existan en ambas bases.
