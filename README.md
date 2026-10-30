@@ -156,3 +156,11 @@ Prueba previa recomendada: en Bikebeat, el kit `MTKITPRESPMP` usa `VERPARCH24`, 
 - Guardar una receta no modifica stock, movimientos ni publicaciones. Las salidas manuales de kits con receta activa usan las cantidades configuradas para calcular el consumo de cada SKU componente.
 - Incluye `supabase_migration_v80_kits_virtuales.sql`. Ejecutar ese SQL en los proyectos Supabase de Bikebeat y ODKL si las tablas/políticas no existen aún en ambas bases. No es necesario ejecutar una migración de interfaz en Vercel; sí hay que desplegar el contenido del ZIP.
 - El módulo no debe considerarse validado para ventas reales hasta probar con una receta de prueba y confirmar los movimientos generados.
+
+## Kits virtuales: precios dinámicos (v81)
+- El módulo de Kits virtuales consulta el precio de compra y el precio de venta vigentes de cada SKU componente.
+- Calcula ambos importes multiplicando cada precio por las piezas requeridas por kit y sumando los componentes.
+- Los importes se recalculan al cargar/actualizar el módulo, por lo que un cambio posterior en el precio de un componente se refleja sin editar el SKU virtual del kit.
+- En las salidas de kits virtuales, los movimientos de los componentes conservan su precio de venta unitario vigente; no se usa el precio guardado en el SKU virtual.
+- No se sobrescriben los precios de compra/venta guardados en los SKU componentes ni en el SKU virtual, y no se actualizan publicaciones de Mercado Libre.
+- La consulta de precios no modifica existencias. El descuento de inventario sigue realizándose únicamente al registrar la salida del kit.

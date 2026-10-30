@@ -171,7 +171,7 @@
 <section id="suppliers" class="card hidden app-screen"><div class="screen-nav"><button type="button" class="ghost" onclick="tab('dashboard')">← Dashboard</button></div><h2>Prov/Cliente <span class="base-screen-label" data-base-label></span></h2><p class="muted">Selecciona qué tipo de registro deseas administrar.</p><div class="row" style="margin-bottom:12px"><button id="partyModeSupplier" onclick="setPartyMode('supplier')">Proveedor</button><button id="partyModeCustomer" class="ghost" onclick="setPartyMode('customer')">Paqueteria</button></div><div id="partySupplierBox"><h3 style="margin-top:0">Nuevo proveedor</h3><div class="row"><input id="supName" placeholder="Nombre del proveedor"><input id="supPhone" placeholder="Teléfono"><input id="supEmail" type="email" placeholder="Correo"><input id="supNotes" placeholder="Notas"><button type="button" onclick="saveSupplier()">Agregar proveedor</button></div><div id="supMsg" class="status"></div><div id="suppliersOut"></div></div><div id="partyCustomerBox" class="hidden"><h3 style="margin-top:0">Nueva paqueteria</h3><div class="row"><input id="cusName" placeholder="Nombre de la paqueteria"><input id="cusPhone" placeholder="Teléfono"><input id="cusEmail" type="email" placeholder="Correo"><input id="cusNotes" placeholder="Notas"><button type="button" onclick="saveCustomer()">Agregar paqueteria</button></div><div id="cusMsg" class="status"></div><div id="customersOut"></div></div></section>
 <section id="kits" class="card hidden app-screen admin-only-section"><div class="screen-nav"><button type="button" class="ghost" onclick="tab('dashboard')">← Dashboard</button></div>
 <h2>Kits virtuales <span class="base-screen-label" data-base-label></span></h2>
-<p class="muted">Configura aquí cada kit y los SKU físicos que lo componen. La cantidad se define por componente: normalmente 1, pero puedes indicar 2, 3 o más piezas de un mismo SKU. Este módulo solo guarda recetas; no modifica existencias ni crea movimientos.</p>
+<p class="muted">Configura cada kit y sus SKU físicos. Las cantidades pueden ser distintas por componente. Los precios de compra y venta se calculan en tiempo real sumando el precio actual de cada SKU multiplicado por sus piezas; no necesitas actualizar el precio del SKU virtual. El cálculo no modifica los precios guardados de los productos ni las publicaciones de Mercado Libre.</p>
 <div class="editbox"><h3 style="margin-top:0">Configurar kit</h3>
 <label>Producto que representa el kit<select id="kitProductSelect"><option value="">Cargando productos…</option></select></label>
 <label style="display:block;margin-top:10px">Notas (opcional)<input id="kitRecipeNotes" placeholder="Ej. kit de 3 productos para publicación ML"></label>
@@ -610,7 +610,7 @@ let kitModuleProducts=[];
 let kitEditingRecipeId=null;
 let kitComponentRowCounter=0;
 function kitEsc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-async function fetchAllKitProducts(){let all=[],from=0,step=1000;while(true){const {data,error}=await supa.from('products').select('id,sku,name,stock,active').order('name').range(from,from+step-1);if(error)throw error;all=all.concat(data||[]);if(!data||data.length<step)break;from+=step;}return all}
+async function fetchAllKitProducts(){let all=[],from=0,step=1000;while(true){const {data,error}=await supa.from('products').select('id,sku,name,stock,active,purchase_price,sale_price').order('name').range(from,from+step-1);if(error)throw error;all=all.concat(data||[]);if(!data||data.length<step)break;from+=step;}return all}
 async function loadKitModule(){
  const status=document.getElementById('kitRecipesStatus');if(!status)return;
  status.textContent='Cargando productos y recetas de '+activeBaseName()+'…';
@@ -628,11 +628,14 @@ async function loadKitModule(){
    const kit=kitModuleProducts.find(p=>p.id===recipe.kit_product_id);
    const {data:comps,error:ce}=await supa.from('kit_recipe_components').select('component_product_id,quantity').eq('recipe_id',recipe.id);
    if(ce)throw ce;
-   const compText=(comps||[]).map(c=>{const prod=kitModuleProducts.find(p=>p.id===c.component_product_id);return `${prod?.sku||'SKU no encontrado'} × ${Number(c.quantity||0)}`}).join('<br>');
+   const compProducts=(comps||[]).map(c=>({component:c,product:kitModuleProducts.find(p=>p.id===c.component_product_id)}));
+   const compText=compProducts.map(({component:c,product:prod})=>`${prod?.sku||'SKU no encontrado'} × ${Number(c.quantity||0)}`).join('<br>');
+   const kitPurchase=compProducts.reduce((sum,{component:c,product:p})=>sum+Number(p?.purchase_price||0)*Number(c.quantity||0),0);
+   const kitSale=compProducts.reduce((sum,{component:c,product:p})=>sum+Number(p?.sale_price||0)*Number(c.quantity||0),0);
    const avail=(comps||[]).length?Math.max(0,Math.min(...comps.map(c=>{const prod=kitModuleProducts.find(p=>p.id===c.component_product_id);return prod?Math.floor(Number(prod.stock||0)/Number(c.quantity||1)):0}))):0;
-   rows.push(`<tr><td><b>${kitEsc(kit?.sku||'SKU kit no encontrado')}</b><br>${kitEsc(kit?.name||'Producto no encontrado')}</td><td>${compText||'Sin componentes'}</td><td>${avail}</td><td>${recipe.active?'Activa':'Inactiva'}</td><td><button type="button" class="ghost" onclick="editKitRecipe('${kitEsc(recipe.id)}')">Editar</button> <button type="button" class="ghost" onclick="toggleKitRecipe('${kitEsc(recipe.id)}',${!recipe.active})">${recipe.active?'Desactivar':'Activar'}</button></td></tr>`);
+   rows.push(`<tr><td><b>${kitEsc(kit?.sku||'SKU kit no encontrado')}</b><br>${kitEsc(kit?.name||'Producto no encontrado')}</td><td>${compText||'Sin componentes'}</td><td>${avail}</td><td>${moneyMX(kitPurchase)}</td><td>${moneyMX(kitSale)}</td><td>${recipe.active?'Activa':'Inactiva'}</td><td><button type="button" class="ghost" onclick="editKitRecipe('${kitEsc(recipe.id)}')">Editar</button> <button type="button" class="ghost" onclick="toggleKitRecipe('${kitEsc(recipe.id)}',${!recipe.active})">${recipe.active?'Desactivar':'Activar'}</button></td></tr>`);
   }
-  document.getElementById('kitRecipesOut').innerHTML=rows.length?`<table class="table"><thead><tr><th>Kit</th><th>Componentes y piezas por kit</th><th>Kits posibles ahora</th><th>Estado</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table>`:'<div class="status">Todavía no hay recetas de kits guardadas en esta base.</div>';
+  document.getElementById('kitRecipesOut').innerHTML=rows.length?`<table class="table"><thead><tr><th>Kit</th><th>Componentes y piezas por kit</th><th>Kits posibles ahora</th><th>Compra calculada</th><th>Venta calculada</th><th>Estado</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table>`:'<div class="status">Todavía no hay recetas de kits guardadas en esta base.</div>';
   status.textContent=`Base ${activeBaseName()}: ${kitModuleProducts.length} productos consultados y ${(recipes||[]).length} receta(s). La consulta no modifica existencias.`;
  }catch(e){console.error('KIT_MODULE_LOAD',e);status.textContent='No se pudo cargar el módulo: '+(e?.message||String(e));}
 }
@@ -1470,11 +1473,11 @@ async function confirmQuantity(){
     if(kitRecipe){
       const available=Math.max(0,Math.min(...kitRecipe.components.map(c=>Math.floor(Number(c.product.stock||0)/c.quantity))));
       if(q>available){document.getElementById('qtyHelp').textContent=`Stock insuficiente para ${q} kit(s). Disponibles por componentes: ${available}. No se guardó la salida.`;return}
-      const totalWeight=kitRecipe.components.reduce((s,c)=>s+Math.max(0,Number(c.product.sale_price||0))*c.quantity,0);
+      // Precio de venta del kit = suma dinámica de los precios de venta de sus componentes por cantidad.
+      // Cada movimiento conserva el precio de venta unitario real del componente; no depende del precio guardado en el SKU virtual.
       for(const c of kitRecipe.components){
         const componentQty=q*c.quantity;
-        const alloc=totalWeight>0?(Number(c.product.sale_price||0)*c.quantity/totalWeight)*Number(p.sale_price||0):Number(p.sale_price||0)/kitRecipe.components.length;
-        pendingLines.push({product:c.product,quantity:componentQty,_kitSaleName:p.name,_kitSaleSku:p.sku||'',_kitUnitPrice:alloc/Math.max(1,c.quantity)});
+        pendingLines.push({product:c.product,quantity:componentQty,_kitSaleName:p.name,_kitSaleSku:p.sku||'',_kitUnitPrice:Number(c.product.sale_price||0)});
       }
       pendingConfirmProduct=null;
       await saveMoveBatch();
