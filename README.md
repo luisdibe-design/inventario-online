@@ -167,3 +167,6 @@ Prueba previa recomendada: en Bikebeat, el kit `MTKITPRESPMP` usa `VERPARCH24`, 
 
 
 V84: Correccion de lectura PDF Full. Agrupa elementos de texto por cercania vertical y toma la cantidad desde la columna UNIDADES. Validado contra el PDF de envio 79907961: 163 productos y 2313 unidades. Sin cambios de inventario.
+
+
+V85: Asignacion manual y permanente de SKU para productos Full sin SKU de origen. Busca productos en Bikebeat u ODKL, guarda la relacion por codigo ML en Bikebeat y vuelve a calcular existencias. Incluye migracion supabase_migration_v85_full_sku_mappings.sql. No modifica inventario ni movimientos al guardar una relacion.

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
-<link rel="manifest" href="manifest.webmanifest?v=79">
+<link rel="manifest" href="manifest.webmanifest?v=85">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="64x64" href="favicon-64-v2.png">
 <link rel="apple-touch-icon" sizes="192x192" href="icon-192-v2.png">
@@ -119,7 +119,7 @@
 <div class="status" style="margin-top:10px">La comparación consulta ambas bases. Se propone descontar primero de Bikebeat y completar con ODKL. La consulta y el cálculo no modifican existencias ni movimientos.</div>
 <div class="row" style="margin-top:12px;align-items:end"><label style="flex:1">Buscar por SKU, código ML o descripción<input id="fullInboundSearch" type="search" placeholder="Buscar producto..." oninput="renderFullInboundRows()"></label><button type="button" onclick="resolveFullInboundInventory()">Consultar existencias Bikebeat + ODKL</button><button type="button" class="ghost" id="fullInboundExcelBtn" onclick="exportFullInboundExcel()" disabled>Exportar Excel</button></div>
 <div id="fullInboundInventoryStatus" class="status">Después de leer el PDF, consulta las existencias en ambas bases.</div>
-<div id="fullInboundRows" class="full-inbound-table-wrap"></div>
+<div id="fullInboundRows" class="full-inbound-table-wrap"></div><div id="fullInboundMappingMsg" class="status">Si un producto no tiene SKU de origen o no se encuentra, puedes asignarle aquí el SKU correcto. La relación quedará guardada para futuros envíos.</div>
 </section>
 <section id="products" class="card hidden app-screen"><div class="screen-nav"><button type="button" class="ghost" onclick="tab('dashboard')">← Dashboard</button></div><h2 class="screen-title-with-base">Productos <span class="base-screen-label" data-base-label></span> <button type="button" class="ghost products-switch-base" onclick="switchBase()">Cambiar base</button></h2><div class="row"><button class="warehouse-edit" onclick="toggleNewProduct()">+ Crear producto nuevo</button><input id="q" placeholder="SKU, código o nombre" oninput="scheduleProductSearch()"><button type="button" class="ghost" onclick="startProductScan('q')">📷 Escanear</button><button onclick="loadProducts()">Actualizar</button></div><div id="newProductBox" class="hidden editbox" style="margin-top:12px"><h3 style="margin-top:0">Crear producto nuevo</h3><div class="editgrid"><label>SKU <span class="muted">(opcional si capturas código)</span><input id="new-sku" placeholder="SKU del producto"></label><label>Producto <span class="muted">(obligatorio)</span><input id="new-name" placeholder="Nombre del producto" required></label><label>Código de barras <span class="muted">(opcional si capturas SKU)</span><div class="row"><input id="new-barcode" placeholder="Código de barras"><button type="button" class="ghost" onclick="startProductScan('new-barcode')">📷 Escanear</button></div></label><label>Unidad<select id="new-unit"><option value="pieza" selected>Pieza</option><option value="caja">Caja</option><option value="paquete">Paquete</option><option value="bolsa">Bolsa</option><option value="bulto">Bulto</option><option value="par">Par</option><option value="docena">Docena</option><option value="kilogramo">Kilogramo (kg)</option><option value="gramo">Gramo (g)</option><option value="litro">Litro (L)</option><option value="mililitro">Mililitro (ml)</option><option value="metro">Metro (m)</option><option value="centimetro">Centímetro (cm)</option><option value="rollo">Rollo</option><option value="tarima">Tarima</option></select></label><label>Precio de compra<input id="new-purchase" type="number" step="0.01" min="0" value="0" oninput="syncSaleFromPurchase('new-purchase','new-sale')"></label><label>Precio de venta<input id="new-sale" type="number" step="0.01" min="0" value="0"></label><label>Stock<input id="new-stock" type="number" step="0.01" min="0" value="0"></label><label>Stock mínimo<input id="new-min" type="number" step="0.01" min="0" value="0"></label><label>Estado<select id="new-active"><option value="true" selected>Activo</option><option value="false">Inactivo</option></select></label><label style="display:flex;align-items:center;gap:8px"><input id="new-exclude-trello" type="checkbox" style="width:auto"> Excluir de alertas de Trello</label><label>Descripción<input id="new-desc" placeholder="Descripción del producto"></label></div><div class="row" style="margin-top:10px"><button onclick="createProduct()">Guardar producto</button><button class="ghost" onclick="toggleNewProduct(false)">Cancelar</button></div><div id="newProductMsg" class="status"></div></div><div id="productScannerHome"></div><div id="productScanner" class="hidden scanner-panel" style="margin-top:10px"><div><b>Escanear código de barras</b></div><div class="scanner-view"><video id="productVideo" class="scanner-frame" playsinline muted></video><div class="scanner-guide"><i></i></div></div><div class="scanner-actions"><button type="button" class="ghost" onclick="stopProductScan()">Cerrar cámara</button></div><div id="productScanMsg" class="status"></div></div><p class="muted">SKU y código de barras son campos independientes. Puedes editar ambos, además de nombre, precio de compra, precio de venta, stock, unidad y descripción. Los cambios se guardan directamente en la nube.</p><div id="productListControls" style="margin-top:12px"></div><div id="productsOut"></div></section>
 <section id="move" class="card hidden app-screen movement-screen">
@@ -2337,6 +2337,8 @@ if(window.pdfjsLib)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudfl
 let fullInboundRows=[];
 let fullInboundPlan=[];
 let fullInboundMeta={shipment:'',products:0,units:0};
+const fullInboundMappingSearches={};
+let fullInboundMappings={};
 async function parseFullInboundPdf(){
  const input=document.getElementById('fullInboundPdf'),status=document.getElementById('fullInboundStatus'),btn=document.getElementById('fullInboundParseBtn');
  const file=input?.files?.[0]; if(!file){status.textContent='Selecciona primero el PDF del envío.';return}
@@ -2390,7 +2392,9 @@ async function parseFullInboundPdf(){
    description=description.replace(/^\d{8,14}\s*/,'').replace(/\b(obligatorio|Código universal)\b/gi,'').trim();
    if(ml&&Number.isFinite(qty)&&qty>0)rows.push({sku,ml_code:ml,description,quantity:qty});
   }
-  fullInboundRows=rows;fullInboundPlan=[];
+  fullInboundRows=rows;fullInboundPlan=[];fullInboundMappings={};
+  await loadFullInboundMappings();
+  for(const row of fullInboundRows){const saved=fullInboundMappings[row.ml_code];if(saved){row.mapped_sku=saved.product_sku;row.mapped_base=saved.product_base_key;}}
   const text=allLines.map(x=>x.all).join(' ');
   fullInboundMeta.shipment=(text.match(/Envío\s*#\s*(\d+)/i)||[])[1]||'';
   fullInboundMeta.products=(text.match(/Productos del envío:\s*(\d+)/i)||[])[1]||rows.length;
@@ -2403,6 +2407,51 @@ async function parseFullInboundPdf(){
   if(rows.length)await resolveFullInboundInventory();
  }catch(e){console.error(e);status.textContent='No se pudo leer el PDF: '+(e?.message||String(e))}
  finally{btn.disabled=false}
+}
+async function loadFullInboundMappings(){
+ const client=dbClients.bikebeat;
+ let session=(await client.auth.getSession()).data?.session;
+ if(!session?.user&&user?.email&&loginPassword){const login=await client.auth.signInWithPassword({email:user.email,password:loginPassword});if(login.error)throw new Error('No se pudo abrir Bikebeat para consultar relaciones guardadas: '+login.error.message);session=login.data?.session;}
+ if(!session?.user)throw new Error('Se requiere sesión de Bikebeat para consultar las relaciones SKU guardadas.');
+ const codes=[...new Set(fullInboundRows.map(r=>r.ml_code).filter(Boolean))];
+ fullInboundMappings={};if(!codes.length)return;
+ const {data,error}=await client.from('full_inbound_sku_mappings').select('ml_code,product_base_key,product_sku').in('ml_code',codes);
+ if(error)throw new Error('No se pudieron cargar las relaciones SKU guardadas: '+error.message);
+ for(const m of data||[])fullInboundMappings[m.ml_code]=m;
+}
+async function searchFullInboundSku(index){
+ const row=fullInboundRows[index];if(!row)return;
+ const base=document.getElementById(`fullMapBase-${index}`)?.value||'bikebeat';
+ const term=document.getElementById(`fullMapSearch-${index}`)?.value.trim();
+ const msg=document.getElementById(`fullMapMsg-${index}`),select=document.getElementById(`fullMapResult-${index}`);
+ if(!term){msg.textContent='Escribe un SKU o parte del nombre para buscar.';return}
+ msg.textContent='Buscando en '+(base==='bikebeat'?'Bikebeat':'ODKL')+'…';select.innerHTML='';
+ try{
+  const client=dbClients[base];const pattern=`%${term.replace(/[%_]/g,'')}%`;
+  const {data,error}=await client.from('products').select('id,sku,name,stock,purchase_price,sale_price').or(`sku.ilike.${pattern},name.ilike.${pattern}`).limit(20);
+  if(error)throw error;
+  fullInboundMappingSearches[index]=(data||[]);
+  select.innerHTML=(data||[]).map((p,i)=>`<option value="${i}">${escapeMLHtml(p.sku||'(sin SKU)')} · ${escapeMLHtml(p.name||'')} · Stock ${Number(p.stock||0)}</option>`).join('');
+  msg.textContent=data?.length?`${data.length} coincidencia(s). Selecciona el producto correcto y pulsa Guardar relación.`:'No se encontraron productos. Prueba con otra parte del SKU o nombre.';
+ }catch(e){msg.textContent='Error al buscar: '+(e.message||e)}
+}
+async function saveFullInboundSkuMapping(index){
+ const row=fullInboundRows[index];if(!row?.ml_code){alert('Este renglón no tiene código ML. No se puede guardar una relación permanente sin ese identificador.');return}
+ const base=document.getElementById(`fullMapBase-${index}`)?.value||'bikebeat';
+ const chosen=fullInboundMappingSearches[index]?.[Number(document.getElementById(`fullMapResult-${index}`)?.value)];
+ const msg=document.getElementById(`fullMapMsg-${index}`);if(!chosen?.sku){msg.textContent='Selecciona un producto que tenga SKU.';return}
+ msg.textContent='Guardando relación…';
+ try{
+  const client=dbClients.bikebeat;const sess=(await client.auth.getSession()).data?.session;
+  if(!sess?.user)throw new Error('No hay sesión activa en Bikebeat. Vuelve a iniciar sesión.');
+  const payload={ml_code:row.ml_code,product_base_key:base,product_sku:chosen.sku,source_description:row.description||null,created_by:user?.id||null,updated_at:new Date().toISOString()};
+  const {error}=await client.from('full_inbound_sku_mappings').upsert(payload,{onConflict:'ml_code'});
+  if(error)throw error;
+  fullInboundMappings[row.ml_code]={ml_code:row.ml_code,product_base_key:base,product_sku:chosen.sku};
+  row.mapped_sku=chosen.sku;row.mapped_base=base;
+  msg.textContent=`Relación guardada: ${chosen.sku} en ${base==='bikebeat'?'Bikebeat':'ODKL'}. Actualizando existencias…`;
+  await resolveFullInboundInventory();
+ }catch(e){msg.textContent='No se pudo guardar: '+(e.message||e)}
 }
 async function findFullInboundProduct(dbKey,sku){
  if(!sku)return null;
@@ -2425,8 +2474,12 @@ async function resolveFullInboundInventory(){
   }
   const plan=[];
   for(const row of fullInboundRows){
-   const bb=await findFullInboundProduct('bikebeat',row.sku);
-   const od=await findFullInboundProduct('odkl',row.sku);
+   const lookupSku=row.mapped_sku||row.sku;
+   let bb=await findFullInboundProduct('bikebeat',lookupSku);
+   let od=await findFullInboundProduct('odkl',lookupSku);
+   // Si se asignó una relación manual, se respeta la base elegida y el SKU relacionado.
+   if(row.mapped_sku&&row.mapped_base==='bikebeat')od=null;
+   if(row.mapped_sku&&row.mapped_base==='odkl')bb=null;
    const requested=Number(row.quantity)||0,bbStock=Math.max(0,Number(bb?.stock)||0),odStock=Math.max(0,Number(od?.stock)||0);
    const fromBikebeat=bb?Math.min(requested,bbStock):0;
    const remaining=Math.max(0,requested-fromBikebeat);
@@ -2448,12 +2501,13 @@ function renderFullInboundRows(){
  const rows=source.filter(r=>[r.sku,r.ml_code,r.description,r.bikebeat_product?.sku,r.odkl_product?.sku].join(' ').toLocaleLowerCase('es-MX').includes(q));
  if(!rows.length){out.innerHTML='<div class="status">No hay productos para mostrar con este filtro.</div>';return}
  const esc=escapeMLHtml;
- out.innerHTML='<table class="full-inbound-table"><thead><tr><th>SKU PDF</th><th>Código ML</th><th>Descripción</th><th>Solicitado</th><th>SKU Bikebeat</th><th>Stock BB</th><th>Descontar BB</th><th>SKU ODKL</th><th>Stock ODKL</th><th>Descontar ODKL</th><th>Faltante</th></tr></thead><tbody>'+rows.map(r=>`<tr><td>${esc(r.sku||'—')}</td><td>${esc(r.ml_code||'—')}</td><td>${esc(r.description||'—')}</td><td>${r.quantity}</td><td>${esc(r.bikebeat_product?.sku||'Sin relación')}</td><td>${r.bikebeat_product?r.bikebeat_stock:'—'}</td><td>${r.bikebeat_deduct??'—'}</td><td>${esc(r.odkl_product?.sku||'Sin relación')}</td><td>${r.odkl_product?r.odkl_stock:'—'}</td><td>${r.odkl_deduct??'—'}</td><td>${r.shortage??'Pendiente de consulta'}</td></tr>`).join('')+'</tbody></table>';
+ const rowHtml=rows.map(r=>{const i=fullInboundRows.findIndex(x=>x.ml_code===r.ml_code),needsMap=!r.sku||(!r.bikebeat_product&&!r.odkl_product);return `<tr><td>${esc(r.sku||'—')}</td><td>${esc(r.ml_code||'—')}</td><td>${esc(r.description||'—')}</td><td>${r.quantity}</td><td>${esc(r.bikebeat_product?.sku||'Sin relación')}</td><td>${r.bikebeat_product?r.bikebeat_stock:'—'}</td><td>${r.bikebeat_deduct??'—'}</td><td>${esc(r.odkl_product?.sku||'Sin relación')}</td><td>${r.odkl_product?r.odkl_stock:'—'}</td><td>${r.odkl_deduct??'—'}</td><td>${r.shortage??'Pendiente de consulta'}</td></tr>${needsMap?`<tr><td colspan="11"><details><summary>Asignar SKU de inventario a este producto ${r.mapped_sku?`(relación guardada: ${esc(r.mapped_sku)} · ${esc(r.mapped_base)})`:''}</summary><div class="row" style="margin-top:8px;align-items:end"><label>Buscar en base<select id="fullMapBase-${i}"><option value="bikebeat" ${r.mapped_base==='bikebeat'?'selected':''}>Bikebeat</option><option value="odkl" ${r.mapped_base==='odkl'?'selected':''}>ODKL</option></select></label><label style="flex:2">SKU o nombre del producto<input id="fullMapSearch-${i}" placeholder="Escribe SKU o descripción" value="${esc(r.mapped_sku||'')}"></label><button type="button" onclick="searchFullInboundSku(${i})">Buscar</button><label style="flex:2">Producto encontrado<select id="fullMapResult-${i}"><option value="">Primero busca un producto</option></select></label><button type="button" onclick="saveFullInboundSkuMapping(${i})">Guardar relación</button></div><div id="fullMapMsg-${i}" class="muted" style="margin-top:7px">La relación se guarda por código ML y se reutiliza en futuros PDF.</div></details></td></tr>`:''}`}).join('');
+ out.innerHTML='<table class="full-inbound-table"><thead><tr><th>SKU PDF</th><th>Código ML</th><th>Descripción</th><th>Solicitado</th><th>SKU Bikebeat</th><th>Stock BB</th><th>Descontar BB</th><th>SKU ODKL</th><th>Stock ODKL</th><th>Descontar ODKL</th><th>Faltante</th></tr></thead><tbody>'+rowHtml+'</tbody></table>';
 }
 function exportFullInboundExcel(){
  if(!fullInboundRows.length||!window.XLSX){alert('No hay datos para exportar.');return}
  const source=fullInboundPlan.length?fullInboundPlan:fullInboundRows;
- const data=source.map(r=>({'SKU del PDF':r.sku,'Código ML':r.ml_code,'Descripción del producto':r.description,'Cantidad planificada':r.quantity,'SKU relacionado Bikebeat':r.bikebeat_product?.sku||'Sin relación','Existencia Bikebeat':r.bikebeat_product?r.bikebeat_stock:'','Descuento propuesto Bikebeat':r.bikebeat_deduct??'','SKU relacionado ODKL':r.odkl_product?.sku||'Sin relación','Existencia ODKL':r.odkl_product?r.odkl_stock:'','Descuento propuesto ODKL':r.odkl_deduct??'','Faltante':r.shortage??''}));
+ const data=source.map(r=>({'SKU del PDF':r.sku,'SKU asignado manualmente':r.mapped_sku||'','Base de relación manual':r.mapped_base||'','Código ML':r.ml_code,'Descripción del producto':r.description,'Cantidad planificada':r.quantity,'SKU relacionado Bikebeat':r.bikebeat_product?.sku||'Sin relación','Existencia Bikebeat':r.bikebeat_product?r.bikebeat_stock:'','Descuento propuesto Bikebeat':r.bikebeat_deduct??'','SKU relacionado ODKL':r.odkl_product?.sku||'Sin relación','Existencia ODKL':r.odkl_product?r.odkl_stock:'','Descuento propuesto ODKL':r.odkl_deduct??'','Faltante':r.shortage??''}));
  const ws=XLSX.utils.json_to_sheet(data),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Plan Full');
  ws['!cols']=[{wch:20},{wch:16},{wch:60},{wch:16},{wch:22},{wch:16},{wch:20},{wch:22},{wch:16},{wch:20},{wch:12}];
  XLSX.writeFile(wb,`Plan_Envio_Full_${fullInboundMeta.shipment||'desglose'}.xlsx`);
