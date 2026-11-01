@@ -202,3 +202,30 @@ Despliegue: conserva V89 como respaldo y sube el contenido de `v27` a la raíz d
 - Reportes de entradas y salidas identifican los canales Mercado Libre Full, Entrada de ODKL y Salida a BIKERBEAT, incluyendo contraparte en la columna correspondiente.
 - Los movimientos documentales aparecen como registros protegidos en la lista para evitar ajustes accidentales desde esa pantalla.
 - No agrega migraciones SQL, no inserta movimientos y no modifica existencias.
+
+
+## V93 — Transferencias ODKL → Bikebeat en envíos Full
+
+Esta versión amplía el botón **Confirmar descuentos de inventario**:
+
+- Los descuentos físicos de Bikebeat siguen registrándose como salidas `Mercado Libre Full`.
+- Los descuentos físicos de ODKL se reclasifican como salidas `Salida a BIKERBEAT`.
+- Por cada SKU/cantidad surtida desde ODKL, Bikebeat registra una entrada `Entrada de ODKL` y una salida `Mercado Libre Full`, ambas con referencia `FULL-<número de envío>`.
+- La entrada y la salida de Bikebeat se ejecutan en una sola transacción y por la misma cantidad: el efecto neto en el stock de Bikebeat es cero. El descuento real permanece en ODKL.
+- La operación documental tiene control de idempotencia por número de envío y detalle; reintentar tras un fallo no debe duplicar las parejas.
+
+### Requisito de base de datos para V93
+
+Antes de usar por primera vez el botón de confirmación en esta versión, ejecutar una sola vez el archivo:
+
+`supabase_migration_v93_full_inbound_odkl_transfers.sql`
+
+**Solo en el proyecto Supabase de BIKEBEAT** (`iavhoqezxcfdefbyspmq`). No ejecutar esta migración en ODKL. La función utiliza la tabla `products`, la tabla `movements` y el trigger existente de stock de Bikebeat.
+
+La versión V93 no cambia existencias al instalarse. El stock solo cambia cuando se confirma un envío Full: ODKL descuenta su parte; Bikebeat mantiene el mismo stock neto para las piezas transferidas, registrando entrada y salida emparejadas.
+
+### Reintentos y validación
+
+Si el proceso se interrumpe después de descontar una base, volver a pulsar confirmar con el mismo PDF y número de envío; no volver a consultar/modificar manualmente el inventario. Las funciones de descuento y de transferencia guardan el envío para evitar repetir sus movimientos. Verificar después en Movimientos y Reportes:
+- Bikebeat: `Entrada de ODKL` + `Mercado Libre Full`.
+- ODKL: `Salida a BIKERBEAT`.

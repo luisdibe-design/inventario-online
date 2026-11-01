@@ -2599,8 +2599,25 @@ async function confirmFullInboundDeductions(){
   const run=async(base,items)=>{if(!items.length)return {status:'sin_descuentos'};const client=dbClients[base];const {data,error}=await client.rpc('apply_full_inbound_deduction_batch',{p_shipment_id:shipment,p_items:items});if(error)throw new Error(`${base==='bikebeat'?'Bikebeat':'ODKL'}: ${error.message}`);if(!data?.ok)throw new Error(`${base}: la base no confirmó el resultado.`);return data};
   const rb=await run('bikebeat',bb);status.textContent=`Bikebeat: ${rb.status}. Procesando ODKL…`;
   const ro=await run('odkl',od);
+  // Las piezas descontadas de ODKL se documentan también como transferencia a Bikebeat.
+  // En Bikebeat se crea una entrada y la salida Full correspondiente; ambas afectan stock
+  // mediante el trigger y su efecto neto es cero, pues el descuento real ya ocurrió en ODKL.
+  if(od.length){
+    const odklProductIds=od.map(x=>x.product_id);
+    const {error:channelError}=await dbClients.odkl.from('movements')
+      .update({channel:'Salida a BIKERBEAT'})
+      .eq('reference','FULL-'+shipment).eq('type','salida').in('product_id',odklProductIds);
+    if(channelError)throw new Error('ODKL: no se pudo clasificar la salida como transferencia a Bikebeat: '+channelError.message);
+    const transferItems=od.map(x=>({sku:x.sku,quantity:x.quantity}));
+    const {data:transferResult,error:transferError}=await dbClients.bikebeat.rpc(
+      'record_full_inbound_odkl_transfer',
+      {p_shipment_id:shipment,p_items:transferItems}
+    );
+    if(transferError)throw new Error('Bikebeat: no se pudieron registrar las entradas/salidas de transferencia: '+transferError.message);
+    if(!transferResult?.ok)throw new Error('Bikebeat no confirmó el registro de transferencia para este envío.');
+  }
   localStorage.removeItem(key);
-  status.textContent=`Descuento terminado para envío #${shipment}. Bikebeat: ${rb.status}; ODKL: ${ro.status}. Productos omitidos: ${omitted}. Se crearon movimientos solo para los SKU elegibles. Consulta el historial de movimientos para verificar.`;
+  status.textContent=`Descuento terminado para envío #${shipment}. Bikebeat: ${rb.status}; ODKL: ${ro.status}. Transferencias ODKL→Bikebeat: ${od.length ? 'registradas/verificadas' : 'no necesarias'}. Productos omitidos: ${omitted}. Consulta Movimientos y Reportes para verificar.`;
   btn.textContent='Descuentos confirmados';btn.disabled=true;
   await dash();
  }catch(e){console.error('FULL_INBOUND_APPLY',e);status.textContent='El proceso quedó detenido por seguridad: '+(e?.message||String(e))+'. Si una base ya confirmó, no vuelvas a calcular el plan: vuelve a pulsar confirmar con este mismo envío para reintentar la base pendiente. El registro evita repetir descuentos ya aplicados.';btn.disabled=false;}
