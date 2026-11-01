@@ -194,3 +194,11 @@ V85: Asignacion manual y permanente de SKU para productos Full sin SKU de origen
 - La versión del service worker se actualizó a v90.
 
 Despliegue: conserva V89 como respaldo y sube el contenido de `v27` a la raíz del mismo proyecto Vercel. Después de publicar, vuelve a cargar el PDF, consulta existencias, revisa incluidos y omitidos, exporta el reporte si lo necesitas y solo entonces utiliza “Confirmar descuentos de inventario”.
+
+
+## V92 — Movimientos FULL y transferencias integrados
+
+- Los movimientos documentales se consultan en el mismo listado de Movimientos, usando el canal como criterio alterno cuando customer_id/supplier_id está vacío.
+- Reportes de entradas y salidas identifican los canales Mercado Libre Full, Entrada de ODKL y Salida a BIKERBEAT, incluyendo contraparte en la columna correspondiente.
+- Los movimientos documentales aparecen como registros protegidos en la lista para evitar ajustes accidentales desde esa pantalla.
+- No agrega migraciones SQL, no inserta movimientos y no modifica existencias.

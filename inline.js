@@ -840,7 +840,8 @@ function movementDateBounds(date){
 
 async function loadSelectedMovementProcessed(){
   const out=document.getElementById('movementProcessedOut');
-  if(!out||!moveContext?.partyId)return;
+  if(!out)return;
+  if(!moveContext?.partyId){await renderSystemMovementBlock('movementProcessedOut',document.getElementById('moveDate')?.value||localDate(),document.getElementById('type')?.value||'salida');out.classList.remove('hidden');return;}
   const requestSeq=window.__movementProcessedRequestSeq=(window.__movementProcessedRequestSeq||0)+1;
   const requestContext={type:moveContext.type,partyId:moveContext.partyId,date:moveContext.date||localDate()};
   out.classList.remove('hidden');
@@ -860,10 +861,11 @@ async function loadSelectedMovementProcessed(){
   const arr=Object.entries(groups).map(([id,g])=>({id,p:pmap[id]||{},...g})).sort((a,b)=>String(a.p.name||'').localeCompare(String(b.p.name||''),'es'));
   if(requestSeq!==window.__movementProcessedRequestSeq)return;
   const title=requestContext.type==='entrada'?'proveedor':'cliente / paqueteria';
-  if(!arr.length){out.innerHTML='<details open><summary><b>Movimientos registrados</b></summary><div class="muted" style="margin-top:8px">No hay productos registrados para esta '+title+' en la fecha seleccionada.</div></details>';return}
+  if(!arr.length){out.innerHTML='<details open><summary><b>Movimientos registrados</b></summary><div class="muted" style="margin-top:8px">No hay productos registrados para esta '+title+' en la fecha seleccionada.</div></details>';await renderSystemMovementBlock('movementProcessedOut',date,requestContext.type);return}
   const pieces=arr.reduce((a,x)=>a+x.qty,0);
   const totalAmount=arr.reduce((sum,x)=>sum+Number(x.total||0),0);
   out.innerHTML='<details open><summary><b>Movimientos registrados</b> · '+arr.length+' producto(s) · '+pieces+' pieza(s)'+(isAdminSession()?' · Monto total: '+moneyMX(totalAmount):'')+'</summary><div class="movement-processed-list">'+arr.map(x=>{const pid=escJs(x.id);return `<div class="card saved-move-item" style="margin:8px 0;padding:10px"><div class="saved-move-main"><div style="min-width:0"><div style="font-weight:700">${esc(x.p.name||'Producto')}</div><div class="muted" style="margin-top:2px">SKU: ${esc(x.p.sku||'—')} · Código: ${esc(x.p.barcode||'—')}</div>${isAdminSession()?`<div class="muted" style="margin-top:5px">Valor unitario: ${moneyMX(x.qty?x.total/x.qty:0)} · Total por ${x.qty} pieza(s): <b>${moneyMX(x.total)}</b></div>`:''}</div><div class="saved-move-qty"><span class="muted">Piezas</span><b>${x.qty}</b><button type="button" class="ghost saved-adjust-btn" onclick="toggleSavedAdjust('${pid}',${x.qty},'setup-')">⚙️ Ajustar</button></div></div><div id="setup-adjust-${pid}" class="hidden editbox" style="margin-top:8px"><div class="muted">Cantidad actualmente grabada: <b>${x.qty}</b></div><div class="row" style="align-items:center;margin-top:8px"><button type="button" class="ghost" onclick="changeSavedAdjust('${pid}',-1,'setup-')">−</button><input id="setup-adjustQty-${pid}" type="number" min="0" step="1" value="${x.qty}" style="text-align:center;font-size:18px;font-weight:700"><button type="button" class="ghost" onclick="changeSavedAdjust('${pid}',1,'setup-')">+</button></div><div class="row" style="margin-top:8px"><button type="button" onclick="saveSavedAdjust('${pid}',${x.qty},'setup-')">💾 Guardar</button><button type="button" class="ghost" onclick="toggleSavedAdjust('${pid}',${x.qty},'setup-')">Cancelar</button></div><div id="setup-adjustMsg-${pid}" class="muted" style="margin-top:5px"></div></div></div>`}).join('')+'</div></details>';
+  await renderSystemMovementBlock('movementProcessedOut',date,requestContext.type);
 }
 
 async function selectMovementParty(id,name){
@@ -1376,8 +1378,35 @@ async function saveMoveBatch(){
   document.getElementById('moveMsg').textContent=`Movimiento guardado correctamente · ${pendingLines.length} producto(s) · ${pendingLines.reduce((a,x)=>a+x.quantity,0)} pieza(s)`;if(document.getElementById('mlManualOrderRef'))document.getElementById('mlManualOrderRef').value='';pendingLines=[];pendingConfirmProduct=null;renderPendingLines();await dash();await loadSavedMoves();await loadSelectedMovementProcessed();
 }
 function clearPendingMove(){if(!pendingLines.length)return; if(!confirm('¿Limpiar todos los productos pendientes?'))return;pendingLines=[];pendingConfirmProduct=null;document.getElementById('qtyConfirm').classList.add('hidden');document.getElementById('selectedProduct').classList.add('hidden');renderPendingLines();document.getElementById('moveMsg').textContent='Captura limpiada.'}
+
+async function renderSystemMovementBlock(containerId,date,type){
+  const out=document.getElementById(containerId);if(!out)return;
+  const day=String(date||localDate()).slice(0,10),bounds=movementDateBounds(day);
+  const {data,error}=await supa.from('movements')
+    .select('id,product_id,type,quantity,unit_price,movement_date,reference,channel,notes')
+    .eq('type',type).gte('movement_date',bounds.start).lt('movement_date',bounds.end)
+    .or('reference.like.FULL-%,channel.eq.Entrada de ODKL,channel.eq.Salida a BIKERBEAT')
+    .order('movement_date',{ascending:false}).limit(3000);
+  if(error){out.innerHTML += '<div class="status">No se pudieron cargar los movimientos Full/transferencia: '+esc(error.message)+'</div>';return}
+  if(!data?.length)return;
+  const ids=[...new Set(data.map(x=>x.product_id).filter(Boolean))];
+  let products=[];
+  if(ids.length){const p=await supa.from('products').select('id,name,sku,barcode').in('id',ids);if(p.error){out.innerHTML+='<div class="status">No se pudieron cargar los productos Full/transferencia: '+esc(p.error.message)+'</div>';return}products=p.data||[]}
+  const pm={};products.forEach(p=>pm[p.id]=p);
+  const groups={};
+  for(const m of data){
+    const label=m.channel||'Mercado Libre Full';
+    const key=label+'|'+m.product_id;
+    const g=groups[key]||(groups[key]={label,product:pm[m.product_id]||{},qty:0,total:0});
+    g.qty+=Number(m.quantity||0);g.total+=Number(m.quantity||0)*Number(m.unit_price||0);
+  }
+  const arr=Object.values(groups);
+  const pieces=arr.reduce((a,x)=>a+x.qty,0),amount=arr.reduce((a,x)=>a+x.total,0);
+  out.innerHTML += '<details open style="margin-top:12px"><summary><b>Mercado Libre Full y transferencias entre bases</b> · '+esc(day)+' · '+arr.length+' registro(s) · '+pieces+' pieza(s)'+(isAdminSession()?' · '+moneyMX(amount):'')+'</summary><div style="margin-top:8px">'+arr.map(g=>'<div class="card" style="margin:7px 0;padding:10px"><b>'+esc(g.label)+'</b><div style="font-weight:700;margin-top:3px">'+esc(g.product.name||'Producto')+'</div><div class="muted">SKU: '+esc(g.product.sku||'—')+' · '+g.qty+' pieza(s)'+(isAdminSession()?' · Unitario: '+moneyMX(g.qty?g.total/g.qty:0)+' · Total: '+moneyMX(g.total):'')+'</div></div>').join('')+'</div></details>';
+}
+
 async function loadSavedMoves(){
-  if(!moveContext?.partyId)return;
+  if(!moveContext?.partyId){await renderSystemMovementBlock('savedMovesOut',localDate(),document.getElementById('type')?.value||'salida');return;}
   const selectedDate=moveContext.date||localDate();
   const field=moveContext.type==='entrada'?'supplier_id':'customer_id';
   const bounds=movementDateBounds(selectedDate);
@@ -1391,11 +1420,12 @@ async function loadSavedMoves(){
   for(const m of(data||[])){const id=m.product_id;if(!groups[id])groups[id]={productId:id,date:m.movement_date,name:pinfo[id]?.name||'Producto',sku:pinfo[id]?.sku||'—',barcode:pinfo[id]?.barcode||'—',pieces:0,total:0,stock:Number(pinfo[id]?.stock||0)};groups[id].pieces+=Number(m.quantity||0);groups[id].total+=Number(m.quantity||0)*Number(m.unit_price||0)}
   const arr=Object.values(groups).sort((a,b)=>a.name.localeCompare(b.name,'es'));
   const title=moveContext.type==='entrada'?'proveedor':'cliente / paqueteria';
-  if(!arr.length){document.getElementById('savedMovesOut').innerHTML=`<div class="muted">No hay productos registrados para esta ${title} en la fecha seleccionada.</div>`;return}
+  if(!arr.length){document.getElementById('savedMovesOut').innerHTML=`<div class="muted">No hay productos registrados para esta ${title} en la fecha seleccionada.</div>`;await renderSystemMovementBlock('savedMovesOut',selectedDate,moveContext.type);return}
   document.getElementById('savedMovesOut').innerHTML='<details open><summary><b>Movimientos registrados</b> · '+esc(selectedDate)+' · '+esc(moveContext.partyName||'')+' · '+arr.reduce((a,x)=>a+x.pieces,0)+' pieza(s)'+(isAdminSession()?' · Monto total: '+moneyMX(arr.reduce((sum,x)=>sum+Number(x.total||0),0)):'')+'</summary><div style="margin-top:8px">'+arr.map(g=>{
     const pid=escJs(g.productId);
     return `<div class="card saved-move-item" style="margin:8px 0;padding:10px"><div class="saved-move-main"><div style="min-width:0"><div style="font-weight:700">${esc(g.name)}</div><div class="muted" style="margin-top:2px">SKU: ${esc(g.sku)} · Código: ${esc(g.barcode)}</div>${isAdminSession()?`<div class="muted" style="margin-top:5px">Valor por producto: ${moneyMX(g.pieces?g.total/g.pieces:0)} c/u · Total: <b>${moneyMX(g.total)}</b></div>`:''}</div><div class="saved-move-qty"><span class="muted">Piezas</span><b>${g.pieces}</b><button type="button" class="ghost saved-adjust-btn" onclick="toggleSavedAdjust('${pid}',${g.pieces})">⚙️ Ajustar</button></div></div><div id="adjust-${pid}" class="hidden editbox" style="margin-top:8px"><div class="muted">Cantidad actualmente grabada: <b>${g.pieces}</b></div><div class="row" style="align-items:center;margin-top:8px"><button type="button" class="ghost" onclick="changeSavedAdjust('${pid}',-1)">−</button><input id="adjustQty-${pid}" type="number" min="0" step="1" value="${g.pieces}" style="text-align:center;font-size:18px;font-weight:700"><button type="button" class="ghost" onclick="changeSavedAdjust('${pid}',1)">+</button></div><div class="row" style="margin-top:8px"><button type="button" onclick="saveSavedAdjust('${pid}',${g.pieces})">💾 Guardar</button><button type="button" class="ghost" onclick="toggleSavedAdjust('${pid}',${g.pieces})">Cancelar</button></div><div id="adjustMsg-${pid}" class="muted" style="margin-top:5px"></div></div></div>`;
   }).join('')+'</div></details>';
+  await renderSystemMovementBlock('savedMovesOut',selectedDate,moveContext.type);
 }
 
 function toggleSavedAdjust(productId,currentQty,prefix=''){
@@ -1875,7 +1905,7 @@ async function report(){
     if(error){msg.textContent='Error: '+error.message;return}
     const partyHeader=dbType==='entrada'?'Proveedor':'Cliente / Paquetería';
     headers=['Fecha','Canal','SKU','Código de barras','Producto',partyHeader,'Cantidad','Monto unitario','Monto total','Pedido / factura'];
-    rows=(data||[]).map(m=>{const transferNote=String(m.notes||'');let partyName=dbType==='entrada'?(m.suppliers?.name||''):(m.customers?.name||'');if(dbType==='salida'&&/transferencia de inventario hacia ODKL/i.test(transferNote))partyName='ODKL';else if(dbType==='salida'&&/transferencia de inventario hacia Bikebeat/i.test(transferNote))partyName=activeBaseKey==='odkl'?'BikerBeat':'Bikebeat';const channel=m.channel||(/mercado libre|pedido ML:/i.test(transferNote)?'Mercado Libre':'');return [formatReportDate(m.movement_date),channel,m.products?.sku||'',m.products?.barcode||'',m.products?.name||'',partyName,Number(m.quantity||0),Number(m.unit_price||0),Number(m.quantity||0)*Number(m.unit_price||0),m.order_ref||m.reference||''];});
+    rows=(data||[]).map(m=>{const transferNote=String(m.notes||'');let partyName=dbType==='entrada'?(m.suppliers?.name||''):(m.customers?.name||'');if(dbType==='salida'&&/transferencia de inventario hacia ODKL/i.test(transferNote))partyName='ODKL';else if(dbType==='salida'&&/transferencia de inventario hacia Bikebeat/i.test(transferNote))partyName=activeBaseKey==='odkl'?'BikerBeat':'Bikebeat';const channel=m.channel||(/mercado libre|pedido ML:/i.test(transferNote)?'Mercado Libre':'');if(!partyName&&channel==='Entrada de ODKL')partyName='ODKL';else if(!partyName&&channel==='Salida a BIKERBEAT')partyName='BIKEBEAT';else if(!partyName&&channel==='Mercado Libre Full')partyName='Mercado Libre Full';return [formatReportDate(m.movement_date),channel,m.products?.sku||'',m.products?.barcode||'',m.products?.name||'',partyName,Number(m.quantity||0),Number(m.unit_price||0),Number(m.quantity||0)*Number(m.unit_price||0),m.order_ref||m.reference||''];});
   }else{
     if(!range.from||!range.to){msg.textContent='Selecciona las fechas Desde y Hasta.';return}
     const returnType=type==='merma'?'merma':'devolucion_buen_estado';

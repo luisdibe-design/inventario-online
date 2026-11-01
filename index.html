@@ -1139,7 +1139,7 @@ async function loadMovementPartyMenu(){
     document.getElementById('movementProcessedOut')?.classList.add('hidden');
   }
 }
-async function queryMovementsForSelectedDay(date,type,field,partyId,select='id,product_id,quantity,unit_price,order_ref,created_at,movement_date'){
+async function queryMovementsForSelectedDay(date,type,field,partyId,select='id,product_id,quantity,unit_price,order_ref,created_at,movement_date',partyName=''){
   const day=String(date||localDate()).slice(0,10);
   const bounds=movementDateBounds(day);
   const base=()=>supa.from('movements').select(select).eq('type',type).eq(field,partyId);
@@ -1157,6 +1157,22 @@ async function queryMovementsForSelectedDay(date,type,field,partyId,select='id,p
     const stamp=Date.parse(row.movement_date||'');
     const legacyMidnight=Number.isFinite(stamp)&&stamp%86400000===0;
     if(legacyMidnight&&!seen.has(row.id)){rows.push(row);seen.add(row.id)}
+  }
+  // Movimientos documentales del embarque FULL y transferencias interbase:
+  // se consultan por canal porque fueron registrados sin customer_id/supplier_id.
+  // Se combinan con la consulta normal y se deduplican por id; no se insertan ni alteran filas.
+  const name=String(partyName||'');
+  let documentaryChannel='';
+  if(type==='salida' && /full/i.test(name)) documentaryChannel='Mercado Libre Full';
+  else if(type==='entrada' && /odkl/i.test(name)) documentaryChannel='Entrada de ODKL';
+  else if(type==='salida' && activeBaseKey==='odkl' && /bikebeat|bikerbeat/i.test(name)) documentaryChannel='Salida a BIKERBEAT';
+  if(documentaryChannel){
+    const extra=await supa.from('movements').select(select).eq('type',type).eq('channel',documentaryChannel)
+      .gte('movement_date',bounds.start).lt('movement_date',bounds.end)
+      .order('created_at',{ascending:false}).limit(1000);
+    if(extra.error)return extra;
+    const ids=new Set(rows.map(r=>r.id));
+    for(const row of(extra.data||[])){if(!ids.has(row.id)){rows.push(row);ids.add(row.id)}}
   }
   return {data:rows,error:null};
 }
@@ -1182,7 +1198,7 @@ async function loadSelectedMovementProcessed(){
   const field=requestContext.type==='entrada'?'supplier_id':'customer_id';
   const date=requestContext.date;
   const bounds=movementDateBounds(date);
-  const {data,error}=await queryMovementsForSelectedDay(date,requestContext.type,field,requestContext.partyId,'id,product_id,quantity,unit_price,order_ref,created_at,movement_date');
+  const {data,error}=await queryMovementsForSelectedDay(date,requestContext.type,field,requestContext.partyId,'id,product_id,quantity,unit_price,order_ref,reference,channel,notes,created_at,movement_date',moveContext.partyName);
   if(requestSeq!==window.__movementProcessedRequestSeq)return;
   if(error){out.innerHTML='<div class="status" style="color:#ff9aa7">No se pudo cargar la lista registrada: '+esc(error.message)+'</div>';return}
   const ids=[...new Set((data||[]).map(x=>x.product_id).filter(Boolean))];
@@ -1190,14 +1206,14 @@ async function loadSelectedMovementProcessed(){
   if(ids.length){const r=await supa.from('products').select('id,name,sku,barcode').in('id',ids);if(requestSeq!==window.__movementProcessedRequestSeq)return;if(r.error){out.innerHTML='<div class="status" style="color:#ff9aa7">No se pudieron cargar los productos: '+esc(r.error.message)+'</div>';return}products=r.data||[]}
   const pmap={};products.forEach(p=>pmap[p.id]=p);
   const groups={};
-  for(const m of(data||[])){const g=groups[m.product_id]||(groups[m.product_id]={qty:0,total:0});g.qty+=Number(m.quantity||0);g.total+=Number(m.quantity||0)*Number(m.unit_price||0)}
-  const arr=Object.entries(groups).map(([id,g])=>({id,p:pmap[id]||{},...g})).sort((a,b)=>String(a.p.name||'').localeCompare(String(b.p.name||''),'es'));
+  for(const m of(data||[])){const documentary=['Mercado Libre Full','Entrada de ODKL','Salida a BIKERBEAT'].includes(String(m.channel||''));const g=groups[m.product_id]||(groups[m.product_id]={qty:0,total:0,count:0,protectedCount:0});g.qty+=Number(m.quantity||0);g.total+=Number(m.quantity||0)*Number(m.unit_price||0);g.count++;if(documentary)g.protectedCount++}
+  const arr=Object.entries(groups).map(([id,g])=>({id,p:pmap[id]||{},...g,protected:g.count>0&&g.count===g.protectedCount})).sort((a,b)=>String(a.p.name||'').localeCompare(String(b.p.name||''),'es'));
   if(requestSeq!==window.__movementProcessedRequestSeq)return;
   const title=requestContext.type==='entrada'?'proveedor':'cliente / paqueteria';
   if(!arr.length){out.innerHTML='<details open><summary><b>Movimientos registrados</b></summary><div class="muted" style="margin-top:8px">No hay productos registrados para esta '+title+' en la fecha seleccionada.</div></details>';return}
   const pieces=arr.reduce((a,x)=>a+x.qty,0);
   const totalAmount=arr.reduce((sum,x)=>sum+Number(x.total||0),0);
-  out.innerHTML='<details open><summary><b>Movimientos registrados</b> · '+arr.length+' producto(s) · '+pieces+' pieza(s)'+(isAdminSession()?' · Monto total: '+moneyMX(totalAmount):'')+'</summary><div class="movement-processed-list">'+arr.map(x=>{const pid=escJs(x.id);return `<div class="card saved-move-item" style="margin:8px 0;padding:10px"><div class="saved-move-main"><div style="min-width:0"><div style="font-weight:700">${esc(x.p.name||'Producto')}</div><div class="muted" style="margin-top:2px">SKU: ${esc(x.p.sku||'—')} · Código: ${esc(x.p.barcode||'—')}</div>${isAdminSession()?`<div class="muted" style="margin-top:5px">Valor unitario: ${moneyMX(x.qty?x.total/x.qty:0)} · Total por ${x.qty} pieza(s): <b>${moneyMX(x.total)}</b></div>`:''}</div><div class="saved-move-qty"><span class="muted">Piezas</span><b>${x.qty}</b><button type="button" class="ghost saved-adjust-btn" onclick="toggleSavedAdjust('${pid}',${x.qty},'setup-')">⚙️ Ajustar</button></div></div><div id="setup-adjust-${pid}" class="hidden editbox" style="margin-top:8px"><div class="muted">Cantidad actualmente grabada: <b>${x.qty}</b></div><div class="row" style="align-items:center;margin-top:8px"><button type="button" class="ghost" onclick="changeSavedAdjust('${pid}',-1,'setup-')">−</button><input id="setup-adjustQty-${pid}" type="number" min="0" step="1" value="${x.qty}" style="text-align:center;font-size:18px;font-weight:700"><button type="button" class="ghost" onclick="changeSavedAdjust('${pid}',1,'setup-')">+</button></div><div class="row" style="margin-top:8px"><button type="button" onclick="saveSavedAdjust('${pid}',${x.qty},'setup-')">💾 Guardar</button><button type="button" class="ghost" onclick="toggleSavedAdjust('${pid}',${x.qty},'setup-')">Cancelar</button></div><div id="setup-adjustMsg-${pid}" class="muted" style="margin-top:5px"></div></div></div>`}).join('')+'</div></details>';
+  out.innerHTML='<details open><summary><b>Movimientos registrados</b> · '+arr.length+' producto(s) · '+pieces+' pieza(s)'+(isAdminSession()?' · Monto total: '+moneyMX(totalAmount):'')+'</summary><div class="movement-processed-list">'+arr.map(x=>{const pid=escJs(x.id);return `<div class="card saved-move-item" style="margin:8px 0;padding:10px"><div class="saved-move-main"><div style="min-width:0"><div style="font-weight:700">${esc(x.p.name||'Producto')}</div><div class="muted" style="margin-top:2px">SKU: ${esc(x.p.sku||'—')} · Código: ${esc(x.p.barcode||'—')}</div>${isAdminSession()?`<div class="muted" style="margin-top:5px">Valor unitario: ${moneyMX(x.qty?x.total/x.qty:0)} · Total por ${x.qty} pieza(s): <b>${moneyMX(x.total)}</b></div>`:''}</div><div class="saved-move-qty"><span class="muted">Piezas</span><b>${x.qty}</b>${x.protected?'<span class="muted" title="Movimiento documental; no modifica existencias">Registro protegido</span>':`<button type="button" class="ghost saved-adjust-btn" onclick="toggleSavedAdjust('${pid}',${x.qty},'setup-')">⚙️ Ajustar</button>`}</div></div><div id="setup-adjust-${pid}" class="hidden editbox" style="margin-top:8px"><div class="muted">Cantidad actualmente grabada: <b>${x.qty}</b></div><div class="row" style="align-items:center;margin-top:8px"><button type="button" class="ghost" onclick="changeSavedAdjust('${pid}',-1,'setup-')">−</button><input id="setup-adjustQty-${pid}" type="number" min="0" step="1" value="${x.qty}" style="text-align:center;font-size:18px;font-weight:700"><button type="button" class="ghost" onclick="changeSavedAdjust('${pid}',1,'setup-')">+</button></div><div class="row" style="margin-top:8px"><button type="button" onclick="saveSavedAdjust('${pid}',${x.qty},'setup-')">💾 Guardar</button><button type="button" class="ghost" onclick="toggleSavedAdjust('${pid}',${x.qty},'setup-')">Cancelar</button></div><div id="setup-adjustMsg-${pid}" class="muted" style="margin-top:5px"></div></div></div>`}).join('')+'</div></details>';
 }
 
 async function selectMovementParty(id,name){
@@ -2209,7 +2225,7 @@ async function report(){
     if(error){msg.textContent='Error: '+error.message;return}
     const partyHeader=dbType==='entrada'?'Proveedor':'Cliente / Paquetería';
     headers=['Fecha','Canal','SKU','Código de barras','Producto',partyHeader,'Cantidad','Monto unitario','Monto total','Pedido / factura'];
-    rows=(data||[]).map(m=>{const transferNote=String(m.notes||'');let partyName=dbType==='entrada'?(m.suppliers?.name||''):(m.customers?.name||'');if(dbType==='salida'&&/transferencia de inventario hacia ODKL/i.test(transferNote))partyName='ODKL';else if(dbType==='salida'&&/transferencia de inventario hacia Bikebeat/i.test(transferNote))partyName=activeBaseKey==='odkl'?'BikerBeat':'Bikebeat';const channel=m.channel||(/mercado libre|pedido ML:/i.test(transferNote)?'Mercado Libre':'');return [formatReportDate(m.movement_date),channel,m.products?.sku||'',m.products?.barcode||'',m.products?.name||'',partyName,Number(m.quantity||0),Number(m.unit_price||0),Number(m.quantity||0)*Number(m.unit_price||0),m.order_ref||m.reference||''];});
+    rows=(data||[]).map(m=>{const transferNote=String(m.notes||'');const channel=m.channel||(/mercado libre|pedido ML:/i.test(transferNote)?'Mercado Libre':'');let partyName=dbType==='entrada'?(m.suppliers?.name||''):(m.customers?.name||'');if(channel==='Mercado Libre Full')partyName='ML BikerBeat Full';else if(channel==='Entrada de ODKL')partyName='ODKL';else if(channel==='Salida a BIKERBEAT')partyName='BIKEBEAT';else if(dbType==='salida'&&/transferencia de inventario hacia ODKL/i.test(transferNote))partyName='ODKL';else if(dbType==='salida'&&/transferencia de inventario hacia Bikebeat/i.test(transferNote))partyName=activeBaseKey==='odkl'?'BIKEBEAT':'BIKEBEAT';return [formatReportDate(m.movement_date),channel,m.products?.sku||'',m.products?.barcode||'',m.products?.name||'',partyName,Number(m.quantity||0),Number(m.unit_price||0),Number(m.quantity||0)*Number(m.unit_price||0),m.order_ref||m.reference||''];});
   }else{
     if(!range.from||!range.to){msg.textContent='Selecciona las fechas Desde y Hasta.';return}
     const returnType=type==='merma'?'merma':'devolucion_buen_estado';
