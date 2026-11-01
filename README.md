@@ -180,3 +180,17 @@ V85: Asignacion manual y permanente de SKU para productos Full sin SKU de origen
 - Los componentes compartidos entre distintos kits o renglones acumulan el consumo para evitar contar dos veces el mismo stock.
 - La consulta sigue siendo de solo lectura: no crea movimientos ni modifica existencias.
 - Requiere que las recetas de kits estén activas y que las tablas `kit_recipes` y `kit_recipe_components` existan en ambas bases.
+
+
+## V90 — Confirmación segura de descuentos de envío Full
+- Agrupa publicaciones/renglones que repiten el mismo SKU y suma su demanda antes de reservar existencias. Los componentes compartidos por recetas de kits también se acumulan por SKU/producto.
+- Un SKU normal se incluye solo si la cantidad total puede cubrirse completa entre Bikebeat y ODKL, priorizando Bikebeat. Si no existe en ninguna base o no alcanza el stock combinado, se omite completo y se informa el motivo.
+- Un kit virtual se incluye solo si TODOS sus componentes pueden cubrirse completos. Si falta cualquier componente, se omite el kit completo sin reservar ni descontar parcialmente sus otros componentes.
+- Se agregó reporte de omitidos en pantalla, botón para exportar solo omitidos y una segunda hoja “Omitidos” dentro del Excel general.
+- Se agregó el botón “Confirmar descuentos de inventario”. Solo administradores pueden ejecutarlo. Crea movimientos de salida por SKU físico/componente en cada base correspondiente; nunca descuenta el SKU virtual del kit.
+- La confirmación usa un RPC transaccional e idempotente por número de envío en cada proyecto Supabase. Si una base confirma y la otra falla, el plan exacto queda congelado en el navegador para reintentar sin repetir la base que ya confirmó. No borres los datos del navegador ni vuelvas a calcular el plan mientras se resuelve un proceso parcial.
+- La migración `supabase_migration_v90_full_inbound_deductions.sql` fue aplicada y verificada en Bikebeat y ODKL. Crea el registro de idempotencia y el RPC `apply_full_inbound_deduction_batch`; no cambia stock al instalarse.
+- Antes de confirmar, revisa la tabla y el reporte de omitidos. La confirmación solo descuenta los SKU/grupos incluidos; los omitidos no generan movimientos.
+- La versión del service worker se actualizó a v90.
+
+Despliegue: conserva V89 como respaldo y sube el contenido de `v27` a la raíz del mismo proyecto Vercel. Después de publicar, vuelve a cargar el PDF, consulta existencias, revisa incluidos y omitidos, exporta el reporte si lo necesitas y solo entonces utiliza “Confirmar descuentos de inventario”.
