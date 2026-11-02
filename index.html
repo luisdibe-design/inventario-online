@@ -2320,9 +2320,39 @@ async function loadMLListings(){
  try{const {data,error}=await supa.functions.invoke('mercadolibre-listing-manager',{body:{base_key:'bikebeat',mode:'list'}});if(error)throw error;if(!data||data.ok!==true)throw new Error(data?.message||data?.detail||data?.error||'No se recibió una lista válida');mlListingsRows=(data.results||[]).filter(r=>String(r.logistics||'').toLowerCase()==='xd_drop_off'||String(r.logistics||'').toLowerCase()==='drop_off');const validIds=new Set(mlListingsRows.map(r=>String(r.ml_item_id)));mlListingsSelected=new Set([...mlListingsSelected].filter(id=>validIds.has(id)));renderMLListings();status.textContent=`Consulta terminada: ${mlListingsRows.length} publicaciones Drop Off. No se modificó ninguna publicación ni el inventario.`;if(data.errors)status.textContent+=` Errores: ${data.errors}. Revisa las filas y vuelve a consultar si es necesario.`}catch(e){console.error('ML listing manager list error',e);status.textContent='No se pudieron consultar las publicaciones: '+(e?.message||String(e));out.innerHTML='<details class="card" open><summary>Detalle técnico</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+escapeMLHtml(JSON.stringify({message:e?.message||String(e),context:e?.context||null},null,2))+'</pre></details>'}finally{if(btn)btn.disabled=false}
 }
 async function changeMLListingsStatus(mode){
- const status=document.getElementById('mlListingsStatus');if(!status)return;if(!isAdminSession())return status.textContent='Solo un administrador puede ejecutar esta acción.';if(activeBaseKey!=='bikebeat')return status.textContent='Cambia a la base Bikebeat.';
- const ids=[...mlListingsSelected];if(!ids.length)return status.textContent='Selecciona al menos una publicación.';const verb=mode==='pause'?'PAUSAR':'REACTIVAR';if(!confirm(`Vas a ${verb} ${ids.length} publicación(es) Drop Off de Mercado Libre en Bikebeat. No se modificará el inventario ni se crearán movimientos. ¿Deseas continuar?`))return;
- status.textContent=`Procesando ${ids.length} publicación(es)…`;try{const {data,error}=await supa.functions.invoke('mercadolibre-listing-manager',{body:{base_key:'bikebeat',mode,item_ids:ids}});if(error)throw error;if(!data||data.ok!==true)throw new Error(data?.message||data?.detail||data?.error||'No se recibió confirmación válida');const rows=data.results||[];const succeeded=rows.filter(r=>['paused','activated','already_paused','already_active'].includes(r.action)).length;const failed=rows.filter(r=>r.action==='error').length;status.textContent=`Operación terminada. Correctas/sin cambio necesario: ${succeeded}; errores: ${failed}; inventario modificado: no.`;const details=rows.map(r=>`${r.title||r.ml_item_id}: ${r.action}${r.message?' — '+r.message:''}`).join('\n');status.textContent+=' ';document.getElementById('mlListingsOut').insertAdjacentHTML('afterbegin',`<details class="card" open><summary>Resultado de la operación</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(details)}</pre></details>`);mlListingsSelected.clear();await loadMLListings()}catch(e){console.error('ML listing manager action error',e);status.textContent='No se pudo completar la operación: '+(e?.message||String(e))}
+ const status=document.getElementById('mlListingsStatus');if(!status)return;
+ if(!isAdminSession())return status.textContent='Solo un administrador puede ejecutar esta acción.';
+ if(activeBaseKey!=='bikebeat')return status.textContent='Cambia a la base Bikebeat.';
+ const ids=[...mlListingsSelected];if(!ids.length)return status.textContent='Selecciona al menos una publicación.';
+ const verb=mode==='pause'?'PAUSAR':'REACTIVAR';
+ if(!confirm(`Vas a ${verb} ${ids.length} publicación(es) Drop Off de Mercado Libre en Bikebeat. Se procesarán en grupos de hasta 50 para evitar el límite de la función. No se modificará el inventario ni se crearán movimientos. ¿Deseas continuar?`))return;
+ const batchSize=50,totalBatches=Math.ceil(ids.length/batchSize),allRows=[],batchErrors=[];
+ const output=document.getElementById('mlListingsOut');
+ status.textContent=`Preparando ${ids.length} publicaciones en ${totalBatches} grupos…`;
+ try{
+  for(let offset=0;offset<ids.length;offset+=batchSize){
+   const batch=ids.slice(offset,offset+batchSize),batchNo=Math.floor(offset/batchSize)+1;
+   status.textContent=`${verb==='PAUSAR'?'Pausando':'Reactivando'} grupo ${batchNo} de ${totalBatches} (${batch.length} publicaciones)…`;
+   try{
+    const {data,error}=await supa.functions.invoke('mercadolibre-listing-manager',{body:{base_key:'bikebeat',mode,item_ids:batch}});
+    if(error)throw error;
+    if(!data||data.ok!==true)throw new Error(data?.message||data?.detail||data?.error||'No se recibió confirmación válida');
+    const rows=Array.isArray(data.results)?data.results:[];allRows.push(...rows);
+    if(rows.length!==batch.length)batchErrors.push(`Grupo ${batchNo}: se enviaron ${batch.length} IDs y la función devolvió ${rows.length} resultados; revisar.`);
+   }catch(e){
+    console.error(`ML listing manager batch ${batchNo} error`,e);
+    batchErrors.push(`Grupo ${batchNo} (${batch.length} publicaciones): ${e?.message||String(e)}. Estado no confirmado; verifica esas publicaciones en Mercado Libre antes de volver a intentarlo.`);
+   }
+  }
+  const succeeded=allRows.filter(r=>['paused','activated','already_paused','already_active'].includes(r.action)).length;
+  const failed=allRows.filter(r=>r.action==='error').length;
+  const skipped=allRows.filter(r=>r.action==='skipped').length;
+  const details=allRows.map(r=>`${r.title||r.ml_item_id}: ${r.action}${r.message?' — '+r.message:''}`).concat(batchErrors).join('\n');
+  status.textContent=`Proceso finalizado. Correctas/sin cambio: ${succeeded}; errores de publicación: ${failed}; omitidas: ${skipped}; grupos con respuesta no confirmada: ${batchErrors.length}. Inventario modificado: no.`;
+  if(output)output.insertAdjacentHTML('afterbegin',`<details class="card" open><summary>Resultado detallado (${allRows.length} publicaciones respondidas)</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(details||'No se recibieron resultados.')}</pre></details>`);
+  if(batchErrors.length){status.textContent+=' No repitas toda la operación: primero revisa los grupos sin confirmación.';}
+  else {mlListingsSelected.clear();await loadMLListings();}
+ }catch(e){console.error('ML listing manager action error',e);status.textContent='La operación se interrumpió: '+(e?.message||String(e))+'. Revisa el estado en Mercado Libre antes de reintentar.';}
 }
 
 // Mercado Libre inventory sync — preview only. Never sends real marketplace updates.
