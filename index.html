@@ -2408,7 +2408,7 @@ async function previewInventorySyncWorker(){
   if(!btn||!status||!out)return;
   if(typeof isAdminSession!=='function'||!isAdminSession()){status.textContent='Solo un administrador puede ejecutar la simulación.';return}
   if(typeof activeBaseKey!=='undefined'&&activeBaseKey!=='bikebeat'){status.textContent='Cambia a la base Bikebeat.';return}
-  const allowed={3DLLANTAMOT:'MLM2983247363',CRCNGSILC:'MLM1379058000'};
+  const allowed={'3DLLANTAMOT':'MLM2983247363','CRCNGSILC':'MLM1379058000'};
   if(!allowed[sku]){status.textContent='SKU no autorizado. Por ahora solo se permiten 3DLLANTAMOT y CRCNGSILC.';return}
   btn.disabled=true;status.textContent='Ejecutando simulación controlada…';out.innerHTML='';
   try{
@@ -2432,7 +2432,7 @@ async function applyInventorySyncWorkerSingle(){
   if(!btn||!status||!out)return;
   if(typeof isAdminSession!=='function'||!isAdminSession()){status.textContent='Solo un administrador puede procesar eventos.';return}
   if(typeof activeBaseKey!=='undefined'&&activeBaseKey!=='bikebeat'){status.textContent='Cambia a la base Bikebeat.';return}
-  const allowed={3DLLANTAMOT:{item:'MLM2983247363',confirm:'PROCESS_ONE_3DLLANTAMOT_MLM2983247363'},CRCNGSILC:{item:'MLM1379058000',confirm:'PROCESS_ONE_CRCNGSILC_MLM1379058000'}};
+  const allowed={'3DLLANTAMOT':{item:'MLM2983247363',confirm:'PROCESS_ONE_3DLLANTAMOT_MLM2983247363'},'CRCNGSILC':{item:'MLM1379058000',confirm:'PROCESS_ONE_CRCNGSILC_MLM1379058000'}};
   const test=allowed[sku];
   if(!test){status.textContent='SKU no autorizado. Por ahora solo se permiten 3DLLANTAMOT y CRCNGSILC.';return}
   const approved=window.confirm(`CONFIRMAR PROCESAMIENTO REAL\n\nSolo SKU ${sku} y publicación ${test.item}.\n\nSi ML ya tiene la cantidad correcta, no se enviará cambio. Si difiere, se actualizará únicamente esa publicación. Después se marcarán procesados los eventos exactos de este SKU.\n\nNo se modifica inventario interno ni se activa sincronización general. ¿Deseas continuar?`);
