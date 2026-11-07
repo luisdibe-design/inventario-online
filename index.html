@@ -107,6 +107,16 @@
 <div class="row" id="mlInventorySyncSingleTestControls" style="align-items:center;margin-top:10px" hidden><button type="button" id="mlInventorySyncSingleTestBtn" onclick="runMercadoLibreSingleSyncTest()">Probar actualización real de 1 publicación</button><span class="muted">Solo MLM2983247363 · cantidad objetivo 2 · no ejecuta sincronización general.</span></div>
 <div id="mlInventorySyncPreviewSummary" class="grid" style="margin-top:12px"></div>
 <div id="mlInventorySyncPreviewResults" style="margin-top:12px;overflow-x:auto"></div>
+<hr style="margin:16px 0;border-color:var(--border,#333)">
+<h4 style="margin:0 0 6px">Cola de eventos de inventario · BIKEBEAT + ODKL</h4>
+<p class="muted">Consulta de solo lectura. Agrupa eventos pendientes por SKU y calcula con las existencias actuales de ambas bases. No consume eventos, no modifica inventario y no actualiza Mercado Libre.</p>
+<div class="row" style="align-items:end">
+<label>SKU a consultar<input id="mlOutboxSku" type="text" value="3DLLANTAMOT" placeholder="Ej. 3DLLANTAMOT"></label>
+<button type="button" id="mlOutboxPreviewBtn" onclick="previewInventorySyncOutbox()">Consultar eventos pendientes</button>
+</div>
+<div id="mlOutboxPreviewStatus" class="muted" role="status" style="margin:8px 0"></div>
+<div id="mlOutboxPreviewSummary" class="grid" style="margin-top:10px"></div>
+<div id="mlOutboxPreviewResults" style="margin-top:10px;overflow-x:auto"></div>
 </details>
 <div class="tabs dashboard-tabs"><button data-role-tab="products" onclick="tab('products')">Productos</button><button data-role-tab="move" onclick="tab('move')">Movimientos</button><button data-role-tab="suppliers" onclick="tab('suppliers')">Proveedores/Clientes</button><button data-role-tab="reports" onclick="tab('reports')">Reportes</button><button data-role-tab="returns" onclick="tab('returns')">Devoluciones</button><button data-role-tab="mlListings" onclick="tab('mlListings')">Publicaciones ML</button><button data-role-tab="kits" onclick="tab('kits')">Kits virtuales</button><button data-role-tab="fullInbound" onclick="tab('fullInbound')">Consulta de envío Full entrante</button></div>
 </div></section>
@@ -2380,6 +2390,33 @@ async function previewMercadoLibreInventorySync(){
     if(singleControls)singleControls.hidden=!singleRow;
     status.textContent='Vista previa terminada. No se realizaron cambios reales en Mercado Libre ni en el inventario.';
   }catch(e){status.textContent='No se pudo obtener la vista previa: '+(e?.message||String(e));out.innerHTML='<div class="status">No se modificaron publicaciones ni inventario. Si el mensaje indica sesión/token vencido, hay que renovar la conexión correspondiente.</div>'}
+  finally{btn.disabled=false}
+}
+
+
+// Cola de sincronización de inventario: consulta segura BIKEBEAT + ODKL, sin consumir eventos.
+async function previewInventorySyncOutbox(){
+  const btn=document.getElementById('mlOutboxPreviewBtn');
+  const status=document.getElementById('mlOutboxPreviewStatus');
+  const summary=document.getElementById('mlOutboxPreviewSummary');
+  const out=document.getElementById('mlOutboxPreviewResults');
+  const sku=(document.getElementById('mlOutboxSku')?.value||'').trim().toUpperCase();
+  if(!btn||!status||!summary||!out)return;
+  if(typeof isAdminSession!=='function'||!isAdminSession()){status.textContent='Solo un administrador puede consultar los eventos.';return}
+  if(typeof activeBaseKey!=='undefined'&&activeBaseKey!=='bikebeat'){status.textContent='Cambia a la base Bikebeat para consultar la cola central de sincronización.';return}
+  btn.disabled=true;status.textContent='Leyendo colas de BIKEBEAT y ODKL…';summary.innerHTML='';out.innerHTML='';
+  try{
+    const {data,error}=await supa.functions.invoke('inventory-sync-event-preview',{body:{sku:sku||null,limit:100}});
+    if(error)throw error;
+    if(!data||data.ok!==true)throw new Error(data?.detail||data?.message||data?.error||'La función no devolvió una consulta válida.');
+    const counts=data.pending_events_by_database||{};
+    summary.innerHTML=[['Pendientes BIKEBEAT',counts.BIKEBEAT??'—'],['Pendientes ODKL',counts.ODKL??'—'],['Eventos leídos',data.pending_events_read??0],['SKU agrupados',data.distinct_skus_grouped??0]].map(([k,v])=>`<div class="card" style="margin:0;padding:12px"><div class="muted">${escapeMLHtml(k)}</div><div class="metric">${escapeMLHtml(v)}</div></div>`).join('');
+    const rows=Array.isArray(data.previews)?data.previews:[];
+    if(!rows.length){out.innerHTML='<div class="status">No se encontraron eventos pendientes para ese SKU en las colas consultadas.</div>'}
+    else out.innerHTML=`<table class="table"><thead><tr><th>SKU</th><th>Eventos</th><th>Stock BIKEBEAT</th><th>Stock ODKL</th><th>Stock combinado</th><th>Objetivo normal (menos reserva)</th><th>Publicaciones relacionadas</th><th>Estado</th></tr></thead><tbody>${rows.map(r=>`<tr><td><strong>${escapeMLHtml(r.sku||'—')}</strong><br><small>${escapeMLHtml(r.product_name||'')}</small></td><td>${escapeMLHtml(r.event_count??0)}</td><td>${escapeMLHtml(r.current_bikebeat_stock??'—')}</td><td>${escapeMLHtml(r.current_odkl_stock??'—')}</td><td>${escapeMLHtml(r.current_combined_stock??'—')}</td><td>${escapeMLHtml(r.normal_product_target_if_not_kit??'—')}</td><td>${(r.mapped_publications||[]).map(m=>escapeMLHtml(m.ml_item_id||'')+' · '+escapeMLHtml(m.title||m.ml_sku||'')).join('<br>')||'—'}</td><td>${r.error?escapeMLHtml(r.error):'Solo lectura'}</td></tr>`).join('')}</tbody></table>`;
+    out.insertAdjacentHTML('beforeend',`<details class="card"><summary>Detalle técnico de la consulta</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto">${escapeMLHtml(JSON.stringify(data,null,2))}</pre></details>`);
+    status.textContent=`Consulta terminada. Eventos consumidos: ${data.events_consumed?'sí':'no'}. Inventario modificado: ${data.inventory_modified?'sí':'no'}. Actualizaciones a Mercado Libre: ${data.marketplace_updates_performed?'sí':'no'}.`;
+  }catch(e){status.textContent='No se pudieron consultar las colas: '+(e?.message||String(e));out.innerHTML='<div class="status">La consulta falló. No se debe asumir que los eventos fueron procesados ni que hubo cambios en Mercado Libre.</div>'}
   finally{btn.disabled=false}
 }
 
