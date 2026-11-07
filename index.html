@@ -108,6 +108,15 @@
 <div id="mlInventorySyncPreviewSummary" class="grid" style="margin-top:12px"></div>
 <div id="mlInventorySyncPreviewResults" style="margin-top:12px;overflow-x:auto"></div>
 <hr style="margin:16px 0;border-color:var(--border,#333)">
+<h4 style="margin:0 0 6px">Consulta de variantes por publicación · Solo lectura</h4>
+<p class="muted">Consulta cada publicación principal y muestra sus variantes, SKU, atributos, existencias BIKEBEAT + ODKL y tipo de logística. No actualiza publicaciones ni modifica inventario.</p>
+<label style="display:block">IDs de publicaciones (uno por línea)<textarea id="mlVariantsItemIds" rows="4" style="width:100%;min-height:96px">6359717638534609
+3884587500969362
+1810283438
+3812977909314897</textarea></label>
+<div class="row" style="align-items:center;margin-top:8px"><button type="button" id="mlVariantsPreviewBtn" onclick="previewMercadoLibreVariants()">Consultar variantes</button><span id="mlVariantsPreviewStatus" class="muted" role="status"></span></div>
+<div id="mlVariantsPreviewResults" style="margin-top:12px;overflow-x:auto"></div>
+<hr style="margin:16px 0;border-color:var(--border,#333)">
 <h4 style="margin:0 0 6px">Cola de eventos de inventario · BIKEBEAT + ODKL</h4>
 <p class="muted">Consulta de solo lectura. Agrupa eventos pendientes por SKU y calcula con las existencias actuales de ambas bases. No consume eventos, no modifica inventario y no actualiza Mercado Libre.</p>
 <div class="row" style="align-items:end">
@@ -2398,6 +2407,35 @@ async function previewMercadoLibreInventorySync(){
   finally{btn.disabled=false}
 }
 
+
+// Consulta de publicaciones y sus variantes. Solo lectura; no usa funciones de actualización.
+async function previewMercadoLibreVariants(){
+  const btn=document.getElementById('mlVariantsPreviewBtn'),status=document.getElementById('mlVariantsPreviewStatus'),out=document.getElementById('mlVariantsPreviewResults'),field=document.getElementById('mlVariantsItemIds');
+  if(!btn||!status||!out||!field)return;
+  if(typeof isAdminSession!=='function'||!isAdminSession()){status.textContent='Solo un administrador puede consultar variantes.';return}
+  if(typeof activeBaseKey!=='undefined'&&activeBaseKey!=='bikebeat'){status.textContent='Cambia a la base Bikebeat para consultar la cuenta conectada de Mercado Libre.';return}
+  const raw=field.value.split(/[\n,;\s]+/).map(x=>x.trim()).filter(Boolean);
+  const ids=[...new Set(raw)];
+  const valid=ids.filter(x=>/^MLM\d+$/.test(x)||/^\d{10}$/.test(x));
+  const invalid=ids.filter(x=>!valid.includes(x));
+  if(!ids.length){status.textContent='Captura al menos un ID de publicación.';return}
+  if(!valid.length){status.textContent='Ningún ID tiene formato de publicación compatible. Mercado Libre normalmente requiere MLM + 10 dígitos.';out.innerHTML=`<div class="status">IDs recibidos: ${ids.map(escapeMLHtml).join(', ')}. No se hizo ninguna consulta.</div>`;return}
+  btn.disabled=true;status.textContent='Consultando publicaciones y variantes en modo de solo lectura…';out.innerHTML='';
+  try{
+    const {data,error}=await supa.functions.invoke('mercadolibre-variants-preview',{body:{item_ids:valid}});
+    if(error)throw error;
+    if(!data||data.ok!==true)throw new Error(data?.message||data?.detail||data?.error||'La función no devolvió una consulta válida.');
+    const cards=(data.items||[]).map(item=>{
+      if(!item.read)return `<div class="card" style="padding:12px;margin:10px 0"><b>${escapeMLHtml(item.item_id)}</b><p>Error HTTP ${escapeMLHtml(item.http_status??'—')}: ${escapeMLHtml(item.error||'No se pudo consultar')}</p></div>`;
+      const rows=(item.variations||[]).map(v=>`<tr><td>${escapeMLHtml(v.variation_id??'Sin variación')}</td><td>${escapeMLHtml(v.seller_sku||'—')}<br><small>${escapeMLHtml(v.match_status||'')}</small></td><td>${(v.attributes||[]).map(a=>escapeMLHtml(a.name||a.id)+': '+escapeMLHtml(a.value_name||'')).join('<br>')||'—'}</td><td>${escapeMLHtml(v.bikebeat_stock??0)}</td><td>${escapeMLHtml(v.odkl_stock??0)}</td><td>${escapeMLHtml(v.combined_stock??0)}</td><td>${escapeMLHtml(v.current_available_quantity??'—')}</td><td><b>${escapeMLHtml(v.target_quantity??'—')}</b></td><td>${escapeMLHtml(v.eligibility||'—')}</td></tr>`).join('');
+      return `<div class="card" style="padding:12px;margin:10px 0"><h4 style="margin:0 0 6px">${escapeMLHtml(item.title||item.item_id)}</h4><p class="muted">${escapeMLHtml(item.item_id)} · Estado: ${escapeMLHtml(item.status||'—')} · Logística: ${escapeMLHtml(item.logistics||'—')} · Variantes: ${escapeMLHtml(item.variant_count??0)}</p><div style="overflow-x:auto"><table class="table"><thead><tr><th>ID variante</th><th>SKU / coincidencia</th><th>Color / atributos</th><th>Stock BIKEBEAT</th><th>Stock ODKL</th><th>Combinado</th><th>Disponible ML</th><th>Objetivo calculado</th><th>Elegibilidad</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    }).join('');
+    const invalidNote=invalid.length?`<div class="status"><b>IDs no consultados por formato:</b> ${invalid.map(escapeMLHtml).join(', ')}. Se conservaron sin convertir. Para identificarlos correctamente, verifica que sean el ID de la publicación principal en la URL de Mercado Libre (normalmente MLM seguido de 10 dígitos).</div>`:'';
+    out.innerHTML=invalidNote+(cards||'<div class="status">La consulta no devolvió publicaciones.</div>')+`<details class="card"><summary>Respuesta técnica completa</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(JSON.stringify(data,null,2))}</pre></details>`;
+    status.textContent=`Consulta terminada: ${data.items_read??data.items?.length??0} publicación(es) procesada(s). No se modificó inventario ni Mercado Libre.`;
+  }catch(e){status.textContent='No se pudo consultar: '+(e?.message||String(e));out.innerHTML='<div class="status">La consulta falló. No se modificaron publicaciones ni existencias.</div><details class="card"><summary>Detalle técnico</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+escapeMLHtml(JSON.stringify({message:e?.message||String(e),context:e?.context||null},null,2))+'</pre></details>'}
+  finally{btn.disabled=false}
+}
 
 // Trabajador independiente: simulación estrictamente limitada, sin aplicar cambios.
 async function previewInventorySyncWorker(){
