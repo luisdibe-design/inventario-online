@@ -117,6 +117,11 @@
 <div id="mlOutboxPreviewStatus" class="muted" role="status" style="margin:8px 0"></div>
 <div id="mlOutboxPreviewSummary" class="grid" style="margin-top:10px"></div>
 <div id="mlOutboxPreviewResults" style="margin-top:10px;overflow-x:auto"></div>
+<hr style="margin:16px 0;border-color:var(--border,#333)">
+<h4 style="margin:0 0 6px">Trabajador de sincronización · Prueba controlada</h4>
+<p class="muted">Simula el cruce de eventos pendientes con la propuesta vigente de Mercado Libre. Por ahora está limitado a 3DLLANTAMOT y a la publicación MLM2983247363. No consume eventos ni realiza actualizaciones reales.</p>
+<div class="row" style="align-items:center"><button type="button" id="mlSyncWorkerPreviewBtn" onclick="previewInventorySyncWorker()">Ejecutar simulación controlada</button><span id="mlSyncWorkerStatus" class="muted" role="status"></span></div>
+<div id="mlSyncWorkerResults" style="margin-top:10px;overflow-x:auto"></div>
 </details>
 <div class="tabs dashboard-tabs"><button data-role-tab="products" onclick="tab('products')">Productos</button><button data-role-tab="move" onclick="tab('move')">Movimientos</button><button data-role-tab="suppliers" onclick="tab('suppliers')">Proveedores/Clientes</button><button data-role-tab="reports" onclick="tab('reports')">Reportes</button><button data-role-tab="returns" onclick="tab('returns')">Devoluciones</button><button data-role-tab="mlListings" onclick="tab('mlListings')">Publicaciones ML</button><button data-role-tab="kits" onclick="tab('kits')">Kits virtuales</button><button data-role-tab="fullInbound" onclick="tab('fullInbound')">Consulta de envío Full entrante</button></div>
 </div></section>
@@ -2393,6 +2398,29 @@ async function previewMercadoLibreInventorySync(){
   finally{btn.disabled=false}
 }
 
+
+// Trabajador independiente: simulación estrictamente limitada, sin aplicar cambios.
+async function previewInventorySyncWorker(){
+  const btn=document.getElementById('mlSyncWorkerPreviewBtn');
+  const status=document.getElementById('mlSyncWorkerStatus');
+  const out=document.getElementById('mlSyncWorkerResults');
+  const sku=(document.getElementById('mlOutboxSku')?.value||'').trim().toUpperCase();
+  if(!btn||!status||!out)return;
+  if(typeof isAdminSession!=='function'||!isAdminSession()){status.textContent='Solo un administrador puede ejecutar la simulación.';return}
+  if(typeof activeBaseKey!=='undefined'&&activeBaseKey!=='bikebeat'){status.textContent='Cambia a la base Bikebeat.';return}
+  if(sku!=='3DLLANTAMOT'){status.textContent='Esta primera prueba solo permite el SKU 3DLLANTAMOT.';return}
+  btn.disabled=true;status.textContent='Ejecutando simulación controlada…';out.innerHTML='';
+  try{
+    const {data,error}=await supa.functions.invoke('inventory-sync-worker',{body:{sku}});
+    if(error)throw error;
+    if(!data||data.ok!==true)throw new Error(data?.detail||data?.message||data?.error||'El trabajador no devolvió un resultado válido.');
+    const q=data.queue||{},d=data.decision||{},safe=data.safety||{};
+    const selected=(data.marketplace_preview?.selected_publications||[]);
+    out.innerHTML=`<div class="grid">${[['Pendientes BIKEBEAT',q.pending_bikebeat??'—'],['Pendientes ODKL',q.pending_odkl??'—'],['Eventos leídos',q.events_read??'—'],['Publicación autorizada',data.marketplace_preview?.selected_publication_count??0]].map(([k,v])=>`<div class="card" style="margin:0;padding:12px"><div class="muted">${escapeMLHtml(k)}</div><div class="metric">${escapeMLHtml(v)}</div></div>`).join('')}</div><div class="status" style="margin-top:10px"><b>Decisión:</b> ${escapeMLHtml(d.status||'—')} · <b>Logística:</b> ${escapeMLHtml(d.logistics||'—')} · <b>Disponible ML:</b> ${escapeMLHtml(d.current_quantity??'—')} · <b>Objetivo:</b> ${escapeMLHtml(d.target_quantity??'—')}<br><b>Motivo:</b> ${escapeMLHtml(d.reason||'—')}</div><div class="status">Protecciones: eventos consumidos ${safe.queue_events_consumed?'sí':'no'} · inventario modificado ${safe.internal_inventory_modified?'sí':'no'} · actualizaciones reales ML ${safe.marketplace_updates_performed?'sí':'no'}.</div><details class="card"><summary>Detalle técnico del trabajador</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto">${escapeMLHtml(JSON.stringify(data,null,2))}</pre></details>`;
+    status.textContent='Simulación terminada. No se realizaron cambios reales.';
+  }catch(e){status.textContent='Falló la simulación: '+(e?.message||String(e));out.innerHTML='<div class="status">No se debe asumir que se procesaron eventos ni que cambió Mercado Libre.</div>'}
+  finally{btn.disabled=false}
+}
 
 // Cola de sincronización de inventario: consulta segura BIKEBEAT + ODKL, sin consumir eventos.
 async function previewInventorySyncOutbox(){
