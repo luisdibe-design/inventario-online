@@ -1871,6 +1871,35 @@ function sortReportBy(column){
   });
   renderReportTable();
 }
+async function reconcileMlDeliveredReport(){
+  if(!isAdminSession()){alert('Solo un administrador puede recuperar el historial de ventas.');return}
+  if(activeBaseKey!=='bikebeat'){alert('Cambia a la base Bikebeat antes de continuar.');return}
+  const from=document.getElementById('from').value||'2026-11-01';
+  const to=document.getElementById('to').value||new Date().toISOString().slice(0,10);
+  if(from>'2026-11-01'){
+    if(!confirm('El rango comienza después del 1 de noviembre de 2026. ¿Deseas continuar?'))return;
+  }
+  if(!confirm(`Se consultarán pedidos pagados de Mercado Libre del ${from} al ${to} para reconstruir únicamente el reporte de ventas entregadas. No se descontará inventario ni se crearán movimientos. ¿Continuar?`))return;
+  const btn=document.getElementById('mlReconcileBtn'),msg=document.getElementById('reportMsg'),out=document.getElementById('reportOut');
+  btn.disabled=true;msg.textContent='Recuperando historial de ventas entregadas…';out.innerHTML='';
+  try{
+    const {data:{session},error:sessionError}=await supa.auth.getSession();
+    if(sessionError||!session?.access_token)throw new Error('La sesión no está vigente. Cierra sesión e inicia nuevamente.');
+    const response=await fetch(BASES.bikebeat.url+'/functions/v1/mercadolibre-report-reconcile',{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token,'apikey':BASES.bikebeat.key},
+      body:JSON.stringify({base_key:'bikebeat',from_date:from+'T00:00:00.000-06:00',to_date:to+'T23:59:59.999-06:00'})
+    });
+    const result=await response.json().catch(()=>({error:'Respuesta inválida de la función'}));
+    if(!response.ok||!result?.ok)throw new Error(result?.message||result?.detail||result?.error||`Error HTTP ${response.status}`);
+    const summary=result.diagnostic||result.summary||result;
+    const errorCount=Array.isArray(summary.errors)?summary.errors.length:Number(summary.errors||0);
+    msg.textContent=`Conciliación terminada. Pedidos consultados: ${summary.orders_found??'—'} · Entregados elegibles: ${summary.eligible_delivered??'—'} · Nuevos: ${summary.inserted??'—'} · Actualizados: ${summary.updated??'—'} · Errores: ${errorCount}. No se modificó inventario ni se crearon movimientos.`;
+    out.innerHTML='<details><summary>Ver diagnóstico técnico</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+escapeMLHtml(JSON.stringify(result,null,2))+'</pre></details>';
+    if(document.getElementById('reportType').value==='ml_delivered')await report();
+  }catch(e){console.error('ML REPORT RECONCILE',e);msg.textContent='No se pudo completar la recuperación: '+(e?.message||String(e));}
+  finally{btn.disabled=false;}
+}
+
 async function report(){
   const type=document.getElementById('reportType').value, range=reportDateRange(), out=document.getElementById('reportOut'), msg=document.getElementById('reportMsg');
   out.innerHTML='';msg.textContent='Consultando…';setReportReady([],[],reportLabel(type));

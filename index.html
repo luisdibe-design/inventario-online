@@ -247,6 +247,7 @@
 <div id="mlReportNotice" class="status hidden">Este reporte consulta únicamente pedidos de Mercado Libre entregados en la base Bikebeat. No incluye cancelados, devoluciones ni pedidos en tránsito. Si faltan precios en la vista de Supabase, se mostrarán en blanco, no como $0.</div>
 <div class="row" style="margin-top:10px">
   <button onclick="report()">Consultar reporte</button>
+  <button id="mlReconcileBtn" class="ghost admin-only" onclick="reconcileMlDeliveredReport()">↻ Recuperar ventas ML faltantes</button>
   <button id="exportExcelBtn" class="ghost" onclick="exportReportExcel()" disabled>⬇ Excel</button>
   <button id="exportPdfBtn" class="ghost" onclick="exportReportPdf()" disabled>⬇ PDF</button>
 </div>
