@@ -2217,6 +2217,44 @@ function sortReportBy(column){
   });
   renderReportTable();
 }
+window.reconcileMlDeliveredReport = async function(){
+  const btn=document.getElementById('mlReconcileBtn');
+  const msg=document.getElementById('reportMsg');
+  const out=document.getElementById('reportOut');
+  const say=(t)=>{if(msg)msg.textContent=t;};
+  try{
+    if(!isAdminSession()){alert('Solo un administrador puede recuperar el historial de ventas.');return;}
+    if(activeBaseKey!=='bikebeat'){alert('Cambia a la base Bikebeat antes de continuar.');return;}
+    const from=document.getElementById('from')?.value||'2026-11-01';
+    const to=document.getElementById('to')?.value||new Date().toISOString().slice(0,10);
+    if(from>to){alert('La fecha Desde no puede ser posterior a Hasta.');return;}
+    if(!confirm(`Se consultarán pedidos pagados de Mercado Libre del ${from} al ${to}. Esta operación solo reconstruye el reporte: no descuenta inventario ni crea movimientos. ¿Continuar?`))return;
+    if(btn){btn.disabled=true;btn.textContent='Consultando Mercado Libre…';}
+    say('Iniciando conciliación de ventas entregadas…');
+    if(out)out.innerHTML='';
+    if(!supa)throw new Error('La conexión con Supabase no está inicializada. Recarga la página e inicia sesión.');
+    const {data,error}=await supa.auth.getSession();
+    if(error)throw new Error('No se pudo validar la sesión: '+error.message);
+    const session=data?.session;
+    if(!session?.access_token)throw new Error('La sesión expiró. Cierra sesión e inicia nuevamente.');
+    const base=BASES.bikebeat;
+    const endpoint=base.url.replace(/\/$/,'')+'/functions/v1/mercadolibre-report-reconcile';
+    let response;
+    try{
+      response=await fetch(endpoint,{method:'POST',mode:'cors',cache:'no-store',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token,'apikey':base.key},body:JSON.stringify({base_key:'bikebeat',from_date:from+'T00:00:00.000-06:00',to_date:to+'T23:59:59.999-06:00'})});
+    }catch(net){throw new Error('No se pudo conectar con la función de Supabase (red/CORS). '+(net?.message||String(net)));}
+    const raw=await response.text();
+    let result={};try{result=raw?JSON.parse(raw):{};}catch{result={detail:raw.slice(0,500)};}
+    if(!response.ok||result?.ok!==true){const detail=result?.detail||result?.message||result?.error||raw||('HTTP '+response.status);throw new Error('Supabase respondió HTTP '+response.status+': '+detail);}
+    const d=result.diagnostic||{};
+    const errs=Array.isArray(d.errors)?d.errors.length:0;
+    say(`Conciliación terminada. Pedidos consultados: ${d.orders_found??0}. Entregados elegibles: ${d.eligible_delivered??0}. Nuevos: ${d.inserted??0}. Actualizados: ${d.updated??0}. Errores: ${errs}. Inventario y movimientos sin cambios.`);
+    if(out){const pre=document.createElement('pre');pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto';pre.textContent=JSON.stringify(result,null,2);const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Ver diagnóstico técnico';details.append(summary,pre);out.append(details);}
+    if(document.getElementById('reportType')?.value==='ml_delivered')await report();
+  }catch(e){console.error('ML REPORT RECONCILE',e);say('No se pudo completar la recuperación: '+(e?.message||String(e)));}
+  finally{if(btn){btn.disabled=false;btn.textContent='↻ Recuperar ventas ML faltantes';}}
+};
+
 async function report(){
   const type=document.getElementById('reportType').value, range=reportDateRange(), out=document.getElementById('reportOut'), msg=document.getElementById('reportMsg');
   out.innerHTML='';msg.textContent='Consultando…';setReportReady([],[],reportLabel(type));
