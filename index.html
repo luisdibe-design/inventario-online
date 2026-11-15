@@ -224,6 +224,7 @@
 <h2>Administrar publicaciones de Mercado Libre · Bikebeat</h2>
 <p class="muted">Módulo independiente para publicaciones <b>Drop Off (xd_drop_off)</b>. Orden alfabético, selección masiva y control manual de pausa/reactivación. No modifica inventario, movimientos ni reportes; las publicaciones Full se excluyen.</p>
 <div class="row" style="align-items:end"><label>Buscar producto o SKU<input id="mlListingsSearch" placeholder="Escribe nombre, SKU o ID" oninput="renderMLListings()"></label><label>Estado<select id="mlListingsStatusFilter" onchange="renderMLListings()"><option value="">Todos los estados</option><option value="active">Activas</option><option value="paused">Pausadas</option><option value="other">Otros estados</option></select></label><button id="mlListingsRefreshBtn" onclick="loadMLListings()">Actualizar publicaciones</button></div>
+<div class="row" style="margin-top:10px"><button class="ghost" id="mlDropoffAuditBtn" onclick="runMLDropoffAudit()">Diagnosticar SKU faltantes (solo lectura)</button><button class="ghost" id="mlDropoffAuditExportBtn" onclick="exportMLDropoffAudit()" disabled>Exportar diagnóstico a Excel</button></div><div id="mlDropoffAuditStatus" class="status" role="status">El diagnóstico compara los SKU Drop Off de Mercado Libre contra todos los productos de BIKEBEAT, incluidas variantes. No modifica datos.</div><div id="mlDropoffAuditSummary" class="grid" style="margin-top:10px"></div><div id="mlDropoffAuditOut" style="margin-top:10px;overflow-x:auto"></div>
 <div class="row" style="margin-top:10px"><button class="ghost" onclick="selectAllVisibleMLListings(true)">Seleccionar visibles</button><button class="ghost" onclick="selectAllVisibleMLListings(false)">Quitar selección visible</button><button onclick="changeMLListingsStatus('pause')">⏸ Pausar seleccionadas</button><button onclick="changeMLListingsStatus('activate')">▶ Reactivar seleccionadas</button></div>
 <div id="mlListingsStatus" class="status" role="status">Pulsa “Actualizar publicaciones” para consultar la cuenta conectada de Bikebeat.</div><div id="mlListingsSummary" class="grid" style="margin-top:10px"></div><div id="mlListingsOut" style="margin-top:10px;overflow-x:auto"></div>
 <p class="muted" style="font-size:12px">Importante: la reactivación solo se realiza cuando la solicitas aquí y confirmas la operación. Si una publicación fue cerrada, suspendida o Mercado Libre rechaza el cambio, se mostrará el resultado sin forzar la operación.</p></section>
@@ -2884,5 +2885,36 @@ function exportFullInboundExcel(){
  if(fullInboundSkipped.length){const sw=XLSX.utils.json_to_sheet(fullInboundSkipped.map(r=>({'SKU':r.sku,'Códigos ML':r.ml_code,'Descripción':r.description,'Cantidad omitida':r.quantity,'Motivo':r.reason})));XLSX.utils.book_append_sheet(wb,sw,'Omitidos')}
  XLSX.writeFile(wb,`Plan_Envio_Full_${fullInboundMeta.shipment||'desglose'}.xlsx`);
 }
+
+let mlDropoffAuditRows=[];
+let mlDropoffAuditMeta=null;
+async function runMLDropoffAudit(){
+ const status=document.getElementById('mlDropoffAuditStatus'),btn=document.getElementById('mlDropoffAuditBtn'),out=document.getElementById('mlDropoffAuditOut'),summary=document.getElementById('mlDropoffAuditSummary'),exportBtn=document.getElementById('mlDropoffAuditExportBtn');
+ if(!status||!out)return;
+ if(!isAdminSession()){status.textContent='Solo un administrador puede ejecutar este diagnóstico.';return;}
+ if(activeBaseKey!=='bikebeat'){status.textContent='Cambia a la base BIKEBEAT para ejecutar el diagnóstico.';return;}
+ if(btn)btn.disabled=true;if(exportBtn)exportBtn.disabled=true;status.textContent='Consultando catálogo completo de Mercado Libre y comparando SKU…';out.innerHTML='';summary.innerHTML='';
+ try{
+  const {data,error}=await supa.functions.invoke('mercadolibre-dropoff-audit',{body:{}});
+  if(error)throw error;if(!data||data.ok!==true||data.read_only!==true)throw new Error(data?.message||data?.detail||data?.error||'El diagnóstico no devolvió una confirmación válida de solo lectura.');
+  mlDropoffAuditRows=Array.isArray(data.rows)?data.rows:[];mlDropoffAuditMeta=data;
+  const s=data.summary||{};
+  summary.innerHTML=[['Publicaciones/variantes Drop Off',data.dropoff_rows||0],['SKU no existe en inventario',s.sku_not_in_inventory||0],['Sin SKU en ML',s.sku_missing_on_ml||0],['SKU duplicado en inventario',s.duplicate_sku_in_inventory||0],['SKU encontrado',s.sku_found_in_inventory||0],['Errores de consulta',s.api_errors||0]].map(([k,v])=>`<div class="card"><div class="muted">${escapeMLHtml(k)}</div><div style="font-size:22px;font-weight:700">${Number(v)||0}</div></div>`).join('');
+  const filtered=mlDropoffAuditRows.filter(r=>r.result!=='SKU_EXISTE_EN_INVENTARIO');
+  const display=filtered.length?filtered:mlDropoffAuditRows;
+  out.innerHTML=`<div class="muted" style="margin-bottom:8px">${filtered.length?`Mostrando ${filtered.length} filas que requieren revisión (sin SKU, inexistentes o duplicadas).`:'No se encontraron SKU faltantes; se muestran todas las filas como referencia.'} La tabla incluye pausadas y activas; cada variante se muestra por separado.</div><table class="data-table" style="width:100%;min-width:900px"><thead><tr><th>Resultado</th><th>Publicación</th><th>Variante</th><th>Estado</th><th>SKU ML</th><th>Descripción</th><th>Existencia ML</th><th>SKU inventario</th><th>Relación</th><th>Logística detectada por</th></tr></thead><tbody>${display.map(r=>`<tr><td>${escapeMLHtml(r.result||'')}</td><td>${escapeMLHtml(r.ml_item_id||'')}</td><td>${escapeMLHtml(r.variation_id||'—')}</td><td>${escapeMLHtml(r.status||'')}</td><td>${escapeMLHtml(r.sku_ml||'—')}</td><td>${escapeMLHtml(r.title||'')}</td><td>${Number(r.quantity_ml)||0}</td><td>${escapeMLHtml(r.inventory_sku||'—')}</td><td>${r.mapping_exists?'Sí':'No'}</td><td>${escapeMLHtml(r.logistics_source||'')}</td></tr>`).join('')}</tbody></table>`;
+  if(data.errors?.length)out.innerHTML+=`<details class="card" style="margin-top:10px"><summary>Errores de consulta (${data.errors.length})</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeMLHtml(JSON.stringify(data.errors,null,2))}</pre></details>`;
+  status.textContent=`Diagnóstico terminado. Se revisaron ${data.catalog_items_scanned||0} publicaciones del catálogo y se identificaron ${data.dropoff_rows||0} filas Drop Off. Solo lectura: no se modificó ningún dato.`;
+  if(exportBtn)exportBtn.disabled=!mlDropoffAuditRows.length;
+ }catch(e){console.error('ML Drop Off audit error',e);status.textContent='No se pudo completar el diagnóstico: '+(e?.message||String(e));out.innerHTML='<details class="card" open><summary>Detalle técnico</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">'+escapeMLHtml(JSON.stringify({message:e?.message||String(e),context:e?.context||null},null,2))+'</pre></details>';}
+ finally{if(btn)btn.disabled=false;}
+}
+function exportMLDropoffAudit(){
+ if(!mlDropoffAuditRows.length)return;
+ const rows=mlDropoffAuditRows.map(r=>({'Resultado':r.result,'ID publicación ML':r.ml_item_id,'ID variante':r.variation_id||'','Estado ML':r.status,'Logística':r.logistics,'Origen logística':r.logistics_source,'SKU en ML':r.sku_ml,'Título publicación':r.title,'Existencia ML':r.quantity_ml,'Existe en BIKEBEAT':r.inventory_exists?'Sí':'No','Coincidencias SKU':r.inventory_matches,'SKU inventario':r.inventory_sku,'Producto inventario':r.inventory_product,'Producto activo':r.inventory_active===null?'':r.inventory_active?'Sí':'No','Relación registrada':r.mapping_exists?'Sí':'No'}));
+ if(window.XLSX){const wb=XLSX.utils.book_new(),ws=XLSX.utils.json_to_sheet(rows);XLSX.utils.book_append_sheet(wb,ws,'Auditoria Drop Off');XLSX.writeFile(wb,'Auditoria_DropOff_SKU_BIKEBEAT.xlsx');}
+ else{const keys=Object.keys(rows[0]);const csv=[keys.join(','),...rows.map(r=>keys.map(k=>'"'+String(r[k]??'').replace(/"/g,'""')+'"').join(','))].join('\r\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='Auditoria_DropOff_SKU_BIKEBEAT.csv';a.click();URL.revokeObjectURL(a.href);}
+}
+
 </script>
 </body></html>
