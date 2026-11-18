@@ -426,7 +426,7 @@ async function getDbKitRecipe(product){
     const p=byId.get(c.component_product_id);
     if(!p)return {product:p,quantity:Number(c.quantity||0),reservedStock:0,availableStock:0};
     const reservedStock=reservedBySku.get(String(p.sku||'').trim().toUpperCase())||0;
-    return {product:p,quantity:Number(c.quantity||0),reservedStock,availableStock:Math.max(0,Number(p.stock||0)-reservedStock)};
+    return {product:p,quantity:Number(c.quantity||0),reservedStock,availableStock:Math.max(0,Number(p.stock||0)-reservedStock-1)};
   });
   if(components.some(c=>!c.product||c.quantity<=0))throw new Error('La receta del kit tiene un componente inexistente o una cantidad inválida.');
   return {recipe,components};
@@ -705,15 +705,15 @@ async function loadKitModule(){
    const compText=compProducts.map(({component:c,product:prod})=>{
     if(!prod)return 'SKU no encontrado';
     const physical=Number(prod.stock||0),reserved=reservedBySku.get(String(prod.sku||'').trim().toUpperCase())||0,available=Math.max(0,physical-reserved);
-    return `${kitEsc(prod.sku||'SKU no encontrado')} × ${Number(c.quantity||0)} <small style="color:#aab4c0">(físico ${physical} · reservado ${reserved} · disponible ${available})</small>`;
+    return `${kitEsc(prod.sku||'SKU no encontrado')} × ${Number(c.quantity||0)} <small style="color:#aab4c0">(físico ${physical} · reservado ${reserved} · seguridad 1 · disponible ${available})</small>`;
    }).join('<br>');
    const kitPurchase=compProducts.reduce((sum,{component:c,product:p})=>sum+Number(p?.purchase_price||0)*Number(c.quantity||0),0);
    const kitSale=compProducts.reduce((sum,{component:c,product:p})=>sum+Number(p?.sale_price||0)*Number(c.quantity||0),0);
-   const avail=(comps||[]).length?Math.max(0,Math.min(...comps.map(c=>{const prod=kitModuleProducts.find(p=>p.id===c.component_product_id);if(!prod)return 0;const reserved=reservedBySku.get(String(prod.sku||'').trim().toUpperCase())||0;return Math.floor(Math.max(0,Number(prod.stock||0)-reserved)/Number(c.quantity||1));}))):0;
+   const avail=(comps||[]).length?Math.max(0,Math.min(...comps.map(c=>{const prod=kitModuleProducts.find(p=>p.id===c.component_product_id);if(!prod)return 0;const reserved=reservedBySku.get(String(prod.sku||'').trim().toUpperCase())||0;return Math.floor(Math.max(0,Number(prod.stock||0)-reserved-1)/Number(c.quantity||1));}))):0;
    rows.push(`<tr><td><b>${kitEsc(kit?.sku||'SKU kit no encontrado')}</b><br>${kitEsc(kit?.name||'Producto no encontrado')}</td><td>${compText||'Sin componentes'}</td><td><b>${avail}</b></td><td>${moneyMX(kitPurchase)}</td><td>${moneyMX(kitSale)}</td><td>${recipe.active?'Activa':'Inactiva'}</td><td><button type="button" class="ghost" onclick="editKitRecipe('${kitEsc(recipe.id)}')">Editar</button> <button type="button" class="ghost" onclick="toggleKitRecipe('${kitEsc(recipe.id)}',${!recipe.active})">${recipe.active?'Desactivar':'Activar'}</button></td></tr>`);
   }
-  document.getElementById('kitRecipesOut').innerHTML=rows.length?`<table class="table"><thead><tr><th>Kit</th><th>Componentes · físico / reservado / disponible</th><th>Kits posibles ahora</th><th>Compra calculada</th><th>Venta calculada</th><th>Estado</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table>`:'<div class="status">Todavía no hay recetas de kits guardadas en esta base.</div>';
-  status.textContent=`Base ${activeBaseName()}: ${kitModuleProducts.length} productos consultados y ${(recipes||[]).length} receta(s). Kits calculados después de restar ${(reservations||[]).length} reservas activas. La consulta no modifica existencias.`;
+  document.getElementById('kitRecipesOut').innerHTML=rows.length?`<table class="table"><thead><tr><th>Kit</th><th>Componentes · físico / reservado / seguridad 1 / disponible</th><th>Kits posibles ahora</th><th>Compra calculada</th><th>Venta calculada</th><th>Estado</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table>`:'<div class="status">Todavía no hay recetas de kits guardadas en esta base.</div>';
+  status.textContent=`Base ${activeBaseName()}: ${kitModuleProducts.length} productos consultados y ${(recipes||[]).length} receta(s). Kits calculados restando ${(reservations||[]).length} reservas activas y 1 pieza de seguridad por componente. La consulta no modifica existencias.`;
  }catch(e){console.error('KIT_MODULE_LOAD',e);status.textContent='No se pudo cargar el módulo: '+(e?.message||String(e));}
 }
 function addKitComponentRow(productId='',quantity=1){
