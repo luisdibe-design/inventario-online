@@ -704,8 +704,8 @@ async function loadKitModule(){
    const compProducts=(comps||[]).map(c=>({component:c,product:kitModuleProducts.find(p=>p.id===c.component_product_id)}));
    const compText=compProducts.map(({component:c,product:prod})=>{
     if(!prod)return 'SKU no encontrado';
-    const physical=Number(prod.stock||0),reserved=reservedBySku.get(String(prod.sku||'').trim().toUpperCase())||0,available=Math.max(0,physical-reserved);
-    return `${kitEsc(prod.sku||'SKU no encontrado')} × ${Number(c.quantity||0)} <small style="color:#aab4c0">(físico ${physical} · reservado ${reserved} · seguridad 1 · disponible ${available})</small>`;
+    const physical=Number(prod.stock||0),reserved=reservedBySku.get(String(prod.sku||'').trim().toUpperCase())||0,safetyReserve=1,available=Math.max(0,physical-reserved-safetyReserve);
+    return `${kitEsc(prod.sku||'SKU no encontrado')} × ${Number(c.quantity||0)} <small style="color:#aab4c0">(físico ${physical} · reservado ${reserved} · seguridad ${safetyReserve} · disponible ${available})</small>`;
    }).join('<br>');
    const kitPurchase=compProducts.reduce((sum,{component:c,product:p})=>sum+Number(p?.purchase_price||0)*Number(c.quantity||0),0);
    const kitSale=compProducts.reduce((sum,{component:c,product:p})=>sum+Number(p?.sale_price||0)*Number(c.quantity||0),0);
