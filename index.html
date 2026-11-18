@@ -401,7 +401,7 @@ function isConfiguredKit(product){return !!kitComponentConfig(product)}
 // Recetas de kits virtuales configuradas en Supabase. La consulta es de solo lectura.
 async function getDbKitRecipe(product){
   if(!product?.id)return null;
-  const recipeResult=await supa.from('kit_recipes').select('id,active,notes').eq('kit_product_id',product.id).eq('active',true).limit(1);
+  const recipeResult=await supa.from('kit_recipes').select('id,active,notes').eq('base_key',activeBaseKey).eq('kit_product_id',product.id).eq('active',true).limit(1);
   if(recipeResult.error)throw new Error('No se pudo consultar la receta del kit: '+recipeResult.error.message);
   const recipe=recipeResult.data?.[0];
   if(!recipe)return null;
@@ -412,14 +412,29 @@ async function getDbKitRecipe(product){
   const productsResult=await supa.from('products').select('id,sku,name,stock,sale_price,purchase_price,active').in('id',ids);
   if(productsResult.error)throw new Error('No se pudieron consultar existencias de los componentes: '+productsResult.error.message);
   const byId=new Map((productsResult.data||[]).map(p=>[p.id,p]));
-  const components=componentResult.data.map(c=>({product:byId.get(c.component_product_id),quantity:Number(c.quantity||0)}));
+  const products=[...byId.values()];
+  const skus=products.map(p=>String(p.sku||'').trim()).filter(Boolean);
+  let reservations=[];
+  if(skus.length){
+    const reservationResult=await supa.from('inventory_reservations').select('sku,quantity').eq('base_key',activeBaseKey).eq('status','reserved').in('sku',skus);
+    if(reservationResult.error)throw new Error('No se pudieron consultar las reservas activas de los componentes: '+reservationResult.error.message);
+    reservations=reservationResult.data||[];
+  }
+  const reservedBySku=new Map();
+  for(const r of reservations){const key=String(r.sku||'').trim().toUpperCase();reservedBySku.set(key,(reservedBySku.get(key)||0)+Number(r.quantity||0));}
+  const components=componentResult.data.map(c=>{
+    const p=byId.get(c.component_product_id);
+    if(!p)return {product:p,quantity:Number(c.quantity||0),reservedStock:0,availableStock:0};
+    const reservedStock=reservedBySku.get(String(p.sku||'').trim().toUpperCase())||0;
+    return {product:p,quantity:Number(c.quantity||0),reservedStock,availableStock:Math.max(0,Number(p.stock||0)-reservedStock)};
+  });
   if(components.some(c=>!c.product||c.quantity<=0))throw new Error('La receta del kit tiene un componente inexistente o una cantidad inválida.');
   return {recipe,components};
 }
 async function getDbKitAvailable(product){
   const recipe=await getDbKitRecipe(product);
   if(!recipe)return null;
-  return Math.max(0,Math.min(...recipe.components.map(c=>Math.floor(Number(c.product.stock||0)/c.quantity))));
+  return Math.max(0,Math.min(...recipe.components.map(c=>Math.floor(c.availableStock/c.quantity))));
 }
 
 async function prepareInterbaseTransfer(product,qty,movementDate,orderRef,sourceSupplierName){
@@ -667,7 +682,7 @@ function kitEsc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':
 async function fetchAllKitProducts(){let all=[],from=0,step=1000;while(true){const {data,error}=await supa.from('products').select('id,sku,name,stock,active,purchase_price,sale_price').order('name').range(from,from+step-1);if(error)throw error;all=all.concat(data||[]);if(!data||data.length<step)break;from+=step;}return all}
 async function loadKitModule(){
  const status=document.getElementById('kitRecipesStatus');if(!status)return;
- status.textContent='Cargando productos y recetas de '+activeBaseName()+'…';
+ status.textContent='Cargando productos, recetas y reservas activas de '+activeBaseName()+'…';
  try{
   kitModuleProducts=await fetchAllKitProducts();
   const select=document.getElementById('kitProductSelect');
@@ -677,20 +692,28 @@ async function loadKitModule(){
   if(!document.querySelector('#kitComponentsEditor .kit-component-row'))addKitComponentRow();
   const {data:recipes,error}=await supa.from('kit_recipes').select('id,kit_product_id,active,notes').eq('base_key',activeBaseKey).order('created_at',{ascending:false});
   if(error)throw error;
+  const {data:reservations,error:reservationError}=await supa.from('inventory_reservations').select('sku,quantity').eq('base_key',activeBaseKey).eq('status','reserved');
+  if(reservationError)throw new Error('No se pudieron consultar las reservas activas: '+reservationError.message);
+  const reservedBySku=new Map();
+  for(const r of reservations||[]){const key=String(r.sku||'').trim().toUpperCase();if(key)reservedBySku.set(key,(reservedBySku.get(key)||0)+Number(r.quantity||0));}
   const rows=[];
   for(const recipe of recipes||[]){
    const kit=kitModuleProducts.find(p=>p.id===recipe.kit_product_id);
    const {data:comps,error:ce}=await supa.from('kit_recipe_components').select('component_product_id,quantity').eq('recipe_id',recipe.id);
    if(ce)throw ce;
    const compProducts=(comps||[]).map(c=>({component:c,product:kitModuleProducts.find(p=>p.id===c.component_product_id)}));
-   const compText=compProducts.map(({component:c,product:prod})=>`${prod?.sku||'SKU no encontrado'} × ${Number(c.quantity||0)}`).join('<br>');
+   const compText=compProducts.map(({component:c,product:prod})=>{
+    if(!prod)return 'SKU no encontrado';
+    const physical=Number(prod.stock||0),reserved=reservedBySku.get(String(prod.sku||'').trim().toUpperCase())||0,available=Math.max(0,physical-reserved);
+    return `${kitEsc(prod.sku||'SKU no encontrado')} × ${Number(c.quantity||0)} <small style="color:#aab4c0">(físico ${physical} · reservado ${reserved} · disponible ${available})</small>`;
+   }).join('<br>');
    const kitPurchase=compProducts.reduce((sum,{component:c,product:p})=>sum+Number(p?.purchase_price||0)*Number(c.quantity||0),0);
    const kitSale=compProducts.reduce((sum,{component:c,product:p})=>sum+Number(p?.sale_price||0)*Number(c.quantity||0),0);
-   const avail=(comps||[]).length?Math.max(0,Math.min(...comps.map(c=>{const prod=kitModuleProducts.find(p=>p.id===c.component_product_id);return prod?Math.floor(Number(prod.stock||0)/Number(c.quantity||1)):0}))):0;
-   rows.push(`<tr><td><b>${kitEsc(kit?.sku||'SKU kit no encontrado')}</b><br>${kitEsc(kit?.name||'Producto no encontrado')}</td><td>${compText||'Sin componentes'}</td><td>${avail}</td><td>${moneyMX(kitPurchase)}</td><td>${moneyMX(kitSale)}</td><td>${recipe.active?'Activa':'Inactiva'}</td><td><button type="button" class="ghost" onclick="editKitRecipe('${kitEsc(recipe.id)}')">Editar</button> <button type="button" class="ghost" onclick="toggleKitRecipe('${kitEsc(recipe.id)}',${!recipe.active})">${recipe.active?'Desactivar':'Activar'}</button></td></tr>`);
+   const avail=(comps||[]).length?Math.max(0,Math.min(...comps.map(c=>{const prod=kitModuleProducts.find(p=>p.id===c.component_product_id);if(!prod)return 0;const reserved=reservedBySku.get(String(prod.sku||'').trim().toUpperCase())||0;return Math.floor(Math.max(0,Number(prod.stock||0)-reserved)/Number(c.quantity||1));}))):0;
+   rows.push(`<tr><td><b>${kitEsc(kit?.sku||'SKU kit no encontrado')}</b><br>${kitEsc(kit?.name||'Producto no encontrado')}</td><td>${compText||'Sin componentes'}</td><td><b>${avail}</b></td><td>${moneyMX(kitPurchase)}</td><td>${moneyMX(kitSale)}</td><td>${recipe.active?'Activa':'Inactiva'}</td><td><button type="button" class="ghost" onclick="editKitRecipe('${kitEsc(recipe.id)}')">Editar</button> <button type="button" class="ghost" onclick="toggleKitRecipe('${kitEsc(recipe.id)}',${!recipe.active})">${recipe.active?'Desactivar':'Activar'}</button></td></tr>`);
   }
-  document.getElementById('kitRecipesOut').innerHTML=rows.length?`<table class="table"><thead><tr><th>Kit</th><th>Componentes y piezas por kit</th><th>Kits posibles ahora</th><th>Compra calculada</th><th>Venta calculada</th><th>Estado</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table>`:'<div class="status">Todavía no hay recetas de kits guardadas en esta base.</div>';
-  status.textContent=`Base ${activeBaseName()}: ${kitModuleProducts.length} productos consultados y ${(recipes||[]).length} receta(s). La consulta no modifica existencias.`;
+  document.getElementById('kitRecipesOut').innerHTML=rows.length?`<table class="table"><thead><tr><th>Kit</th><th>Componentes · físico / reservado / disponible</th><th>Kits posibles ahora</th><th>Compra calculada</th><th>Venta calculada</th><th>Estado</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table>`:'<div class="status">Todavía no hay recetas de kits guardadas en esta base.</div>';
+  status.textContent=`Base ${activeBaseName()}: ${kitModuleProducts.length} productos consultados y ${(recipes||[]).length} receta(s). Kits calculados después de restar ${(reservations||[]).length} reservas activas. La consulta no modifica existencias.`;
  }catch(e){console.error('KIT_MODULE_LOAD',e);status.textContent='No se pudo cargar el módulo: '+(e?.message||String(e));}
 }
 function addKitComponentRow(productId='',quantity=1){
@@ -1568,7 +1591,7 @@ async function confirmQuantity(){
     let kitRecipe;
     try{kitRecipe=await getDbKitRecipe(p)}catch(e){document.getElementById('qtyHelp').textContent=e.message;return}
     if(kitRecipe){
-      const available=Math.max(0,Math.min(...kitRecipe.components.map(c=>Math.floor(Number(c.product.stock||0)/c.quantity))));
+      const available=Math.max(0,Math.min(...kitRecipe.components.map(c=>Math.floor(c.availableStock/c.quantity))));
       if(q>available){document.getElementById('qtyHelp').textContent=`Stock insuficiente para ${q} kit(s). Disponibles por componentes: ${available}. No se guardó la salida.`;return}
       // Precio de venta del kit = suma dinámica de los precios de venta de sus componentes por cantidad.
       // Cada movimiento conserva el precio de venta unitario real del componente; no depende del precio guardado en el SKU virtual.
