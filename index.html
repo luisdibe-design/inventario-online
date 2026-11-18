@@ -416,7 +416,7 @@ async function getDbKitRecipe(product){
   const skus=products.map(p=>String(p.sku||'').trim()).filter(Boolean);
   let reservations=[];
   if(skus.length){
-    const reservationResult=await supa.from('inventory_reservations').select('sku,quantity').eq('base_key',activeBaseKey).eq('status','reserved').in('sku',skus);
+    const reservationResult=await supa.rpc('get_active_inventory_reservations',{p_base_key:activeBaseKey,p_skus:skus});
     if(reservationResult.error)throw new Error('No se pudieron consultar las reservas activas de los componentes: '+reservationResult.error.message);
     reservations=reservationResult.data||[];
   }
@@ -692,7 +692,7 @@ async function loadKitModule(){
   if(!document.querySelector('#kitComponentsEditor .kit-component-row'))addKitComponentRow();
   const {data:recipes,error}=await supa.from('kit_recipes').select('id,kit_product_id,active,notes').eq('base_key',activeBaseKey).order('created_at',{ascending:false});
   if(error)throw error;
-  const {data:reservations,error:reservationError}=await supa.from('inventory_reservations').select('sku,quantity').eq('base_key',activeBaseKey).eq('status','reserved');
+  const {data:reservations,error:reservationError}=await supa.rpc('get_active_inventory_reservations',{p_base_key:activeBaseKey,p_skus:null});
   if(reservationError)throw new Error('No se pudieron consultar las reservas activas: '+reservationError.message);
   const reservedBySku=new Map();
   for(const r of reservations||[]){const key=String(r.sku||'').trim().toUpperCase();if(key)reservedBySku.set(key,(reservedBySku.get(key)||0)+Number(r.quantity||0));}
