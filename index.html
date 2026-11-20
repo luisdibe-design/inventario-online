@@ -277,12 +277,14 @@
     <option value="merma">Mermas</option>
     <option value="good_return">Devoluciones en buen estado</option>
     <option value="ml_delivered">Mercado Libre — ventas entregadas (Bikebeat)</option>
+    <option value="amazon_sales">Amazon — ventas históricas (Bikebeat)</option>
   </select></label>
   <label style="flex:1;min-width:160px">Desde<input id="from" type="date"></label>
   <label style="flex:1;min-width:160px">Hasta<input id="to" type="date"></label>
   <label id="mlReportLogisticsWrap" class="hidden" style="flex:1;min-width:180px">Logística<select id="mlReportLogistics"><option value="">Todas (Full + Drop Off)</option><option value="fulfillment">Full</option><option value="xd_drop_off">Drop Off</option><option value="drop_off">Drop Off (tipo alternativo)</option></select></label>
 </div>
 <div id="mlReportNotice" class="status hidden">Este reporte consulta únicamente pedidos de Mercado Libre entregados en la base Bikebeat. No incluye cancelados, devoluciones ni pedidos en tránsito. Si faltan precios en la vista de Supabase, se mostrarán en blanco, no como $0.</div>
+<div id="amazonReportNotice" class="status hidden">Histórico de pedidos de Amazon asociados a BIKEBEAT. Incluye el estado de cada pedido; los importes faltantes se muestran en blanco. Es un reporte de consulta: no descuenta inventario ni crea movimientos.</div>
 <div class="row" style="margin-top:10px">
   <button onclick="report()">Consultar reporte</button>
   <button id="mlReconcileBtn" class="ghost admin-only" onclick="reconcileMlDeliveredReport()">↻ Recuperar ventas ML faltantes</button>
@@ -2261,18 +2263,21 @@ function reportTypeChanged(){
   const type=document.getElementById('reportType').value;
   const isInventory=type==='inventory';
   const isMlDelivered=type==='ml_delivered';
+  const isAmazonSales=type==='amazon_sales';
   document.getElementById('from').disabled=isInventory;
   document.getElementById('to').disabled=isInventory;
   document.getElementById('mlReportLogisticsWrap').classList.toggle('hidden',!isMlDelivered);
   document.getElementById('mlReportNotice').classList.toggle('hidden',!isMlDelivered);
-  document.getElementById('reportMsg').textContent=isInventory?'Este reporte muestra el inventario actual; el periodo no aplica.':(isMlDelivered?'Reporte de ventas entregadas de Mercado Libre en Bikebeat.':'');
+  document.getElementById('amazonReportNotice').classList.toggle('hidden',!isAmazonSales);
+  document.getElementById('mlReconcileBtn').classList.toggle('hidden',!isMlDelivered);
+  document.getElementById('reportMsg').textContent=isInventory?'Este reporte muestra el inventario actual; el periodo no aplica.':(isMlDelivered?'Reporte de ventas entregadas de Mercado Libre en Bikebeat.':(isAmazonSales?'Histórico de pedidos Amazon de Bikebeat.':''));
   currentReportRows=[];
   currentReportHeaders=[];
   document.getElementById('reportOut').innerHTML='';
   document.getElementById('exportExcelBtn').disabled=true;
   document.getElementById('exportPdfBtn').disabled=true;
 }
-function reportLabel(type){return ({inventory:'Inventario por producto',out:'Reporte de movimientos — salidas',in:'Reporte de movimientos — entradas',merma:'Reporte de mermas',good_return:'Reporte de devoluciones en buen estado'})[type]||'Reporte'}
+function reportLabel(type){return ({inventory:'Inventario por producto',out:'Reporte de movimientos — salidas',in:'Reporte de movimientos — entradas',merma:'Reporte de mermas',good_return:'Reporte de devoluciones en buen estado',amazon_sales:'Amazon — ventas históricas (Bikebeat)',ml_delivered:'Mercado Libre — ventas entregadas (Bikebeat)'})[type]||'Reporte'}
 function reportDateRange(){return {from:document.getElementById('from').value,to:document.getElementById('to').value}}
 function formatReportDate(v){const s=String(v||'');if(!s)return '';const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1].slice(-2)}`:s}
 function setReportReady(rows,headers,title){currentReportRows=rows;currentReportHeaders=headers;currentReportTitle=title;document.getElementById('exportExcelBtn').disabled=!rows.length;document.getElementById('exportPdfBtn').disabled=!rows.length}
@@ -2372,6 +2377,28 @@ async function report(){
     if(error){msg.textContent='No se pudo consultar la vista de ventas de Mercado Libre: '+error.message;return}
     headers=['Fecha de pedido','Pedido ML','Envío','Logística','Estado de envío','SKU','Código de barras','Descripción del producto','Cantidad','Precio unitario de venta','Importe de línea','Moneda','Registro de inventario','ID movimiento de salida'];
     rows=(data||[]).map(r=>[formatReportDate(r.order_date),r.order_id||'',r.shipment_id||'',r.logistic_type||'',r.shipment_status||'',r.sku||'',r.barcode||'',r.description||'',Number(r.quantity||0),r.unit_sale_price==null?'':Number(r.unit_sale_price),r.line_total==null?'':Number(r.line_total),r.currency_id||'',r.stock_action||'',r.outbound_movement_id||'']);
+  }else if(type==='amazon_sales'){
+    if(activeBaseKey!=='bikebeat'){msg.textContent='Este reporte está disponible en la base Bikebeat. Cambia a Bikebeat y vuelve a consultar.';return}
+    if(!range.from||!range.to){msg.textContent='Selecciona las fechas Desde y Hasta.';return}
+    const endExclusive=new Date(range.to+'T00:00:00');endExclusive.setDate(endExclusive.getDate()+1);
+    const endExclusiveISODate=`${endExclusive.getFullYear()}-${String(endExclusive.getMonth()+1).padStart(2,'0')}-${String(endExclusive.getDate()).padStart(2,'0')}`;
+    const {data:orders,error:ordersError}=await supa.from('amazon_orders').select('amazon_order_id,purchase_date,order_status,fulfillment_program,channel_name,shipping_type,currency_code,inventory_base').eq('inventory_base','BIKEBEAT').gte('purchase_date',range.from+'T00:00:00').lt('purchase_date',endExclusiveISODate+'T00:00:00').order('purchase_date',{ascending:false}).limit(10000);
+    if(ordersError){msg.textContent='No se pudieron consultar los pedidos de Amazon: '+ordersError.message;return}
+    const orderIds=(orders||[]).map(o=>o.amazon_order_id).filter(Boolean);
+    if(!orderIds.length){msg.textContent='No hay pedidos de Amazon para las fechas seleccionadas.';return}
+    let items=[];
+    for(let i=0;i<orderIds.length;i+=100){
+      const batch=orderIds.slice(i,i+100);
+      const {data,error}=await supa.from('amazon_order_items').select('amazon_order_id,seller_sku,asin,product_id,product_description,quantity_ordered,quantity_shipped,unit_price,total_amount,currency_code,item_proceeds_total,inventory_action_status').in('amazon_order_id',batch).limit(10000);
+      if(error){msg.textContent='No se pudieron consultar los artículos de Amazon: '+error.message;return}
+      items.push(...(data||[]));
+    }
+    const productIds=[...new Set(items.map(x=>x.product_id).filter(Boolean))];
+    const productMap={};
+    for(let i=0;i<productIds.length;i+=200){const batch=productIds.slice(i,i+200);const {data,error}=await supa.from('products').select('id,sku,name,description').in('id',batch);if(error){msg.textContent='No se pudieron consultar los productos vinculados: '+error.message;return}(data||[]).forEach(p=>productMap[p.id]=p)}
+    const orderMap={};(orders||[]).forEach(o=>orderMap[o.amazon_order_id]=o);
+    headers=['Fecha del pedido','Pedido Amazon','Estado','Programa logístico','Canal','Tipo de envío','SKU Amazon','ASIN','SKU BIKEBEAT','Descripción BIKEBEAT / Amazon','Cantidad pedida','Cantidad enviada','Precio unitario','Importe de línea','Moneda','Estado de inventario'];
+    rows=items.map(it=>{const o=orderMap[it.amazon_order_id]||{},p=productMap[it.product_id]||{};return [formatReportDate(o.purchase_date),it.amazon_order_id||'',o.order_status||'',o.fulfillment_program||'',o.channel_name||'',o.shipping_type||'',it.seller_sku||'',it.asin||'',p.sku||'',p.name||p.description||it.product_description||'',Number(it.quantity_ordered||0),Number(it.quantity_shipped||0),it.unit_price==null?'':Number(it.unit_price),it.total_amount==null?'':Number(it.total_amount),it.currency_code||o.currency_code||'',it.inventory_action_status||''];}).sort((a,b)=>String(b[0]).localeCompare(String(a[0])));
   }else if(type==='out'||type==='in'){
     if(!range.from||!range.to){msg.textContent='Selecciona las fechas Desde y Hasta.';return}
     const dbType=type==='out'?'salida':'entrada';
