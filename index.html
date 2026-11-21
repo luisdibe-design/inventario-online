@@ -2384,7 +2384,12 @@ async function report(){
     if(!range.from||!range.to){msg.textContent='Selecciona las fechas Desde y Hasta.';return}
     const endExclusive=new Date(range.to+'T00:00:00');endExclusive.setDate(endExclusive.getDate()+1);
     const endExclusiveISODate=`${endExclusive.getFullYear()}-${String(endExclusive.getMonth()+1).padStart(2,'0')}-${String(endExclusive.getDate()).padStart(2,'0')}`;
-    const {data:orders,error:ordersError}=await supa.from('amazon_orders').select('amazon_order_id,purchase_date,order_status,fulfillment_program,channel_name,shipping_type,currency_code,inventory_base').eq('inventory_base','BIKEBEAT').gte('purchase_date',range.from+'T00:00:00').lt('purchase_date',endExclusiveISODate+'T00:00:00').order('purchase_date',{ascending:false}).limit(10000);
+    let orders=[],ordersError=null;
+    for(let offset=0;offset<50000;offset+=1000){
+      const page=await supa.from('amazon_orders').select('amazon_order_id,purchase_date,order_status,fulfillment_program,channel_name,shipping_type,currency_code,inventory_base').eq('inventory_base','BIKEBEAT').gte('purchase_date',range.from+'T00:00:00').lt('purchase_date',endExclusiveISODate+'T00:00:00').order('purchase_date',{ascending:false}).range(offset,offset+999);
+      if(page.error){ordersError=page.error;break}
+      orders.push(...(page.data||[]));if((page.data||[]).length<1000)break;
+    }
     if(ordersError){msg.textContent='No se pudieron consultar los pedidos de Amazon: '+ordersError.message;return}
     const orderIds=(orders||[]).map(o=>o.amazon_order_id).filter(Boolean);
     if(!orderIds.length){msg.textContent='No hay pedidos de Amazon para las fechas seleccionadas.';return}
