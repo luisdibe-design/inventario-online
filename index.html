@@ -3056,5 +3056,51 @@ function renderAmazonMappings(){const out=document.getElementById('amMappingRows
 function editAmazonMapping(id){const r=amazonMappingRows.find(x=>x.id===id);if(!r)return;amazonMappingEditingId=id;amazonMappingSelectedProduct=r.product||null;document.getElementById('amSellerSku').value=r.seller_sku||'';document.getElementById('amAsin').value=r.asin||'';document.getElementById('amProgram').value=r.fulfillment_program||'any';document.getElementById('amNotes').value=r.notes||'';document.getElementById('amProductSearch').value='';document.getElementById('amSelectedProduct').textContent=r.product?`Seleccionado: ${r.product.sku||''} · ${r.product.name||''}`:'Producto vinculado no disponible; selecciona uno nuevo.';document.querySelector('#amazonMappings button[onclick="saveAmazonMapping()"]').textContent='Guardar cambios';document.getElementById('amMappingStatus').textContent='Editando asociación existente.';}
 async function saveAmazonMapping(){const status=document.getElementById('amMappingStatus');if(activeBaseKey!=='bikebeat'){if(status)status.textContent='Cambia a la base BIKEBEAT para guardar asociaciones.';return;}const sku=document.getElementById('amSellerSku')?.value.trim(),program=document.getElementById('amProgram')?.value||'any';if(!sku){if(status)status.textContent='Captura el SKU de Amazon.';return;}if(!amazonMappingSelectedProduct?.id){if(status)status.textContent='Selecciona un producto de BIKEBEAT.';return;}if(status)status.textContent='Guardando…';try{const payload={marketplace_id:'A1AM78C64UM0Y8',seller_sku:sku,asin:document.getElementById('amAsin')?.value.trim()||null,product_id:amazonMappingSelectedProduct.id,inventory_base:'BIKEBEAT',mapping_source:'manual',notes:document.getElementById('amNotes')?.value.trim()||null,fulfillment_program:program,active:true,updated_at:new Date().toISOString()};let existing=amazonMappingRows.find(r=>r.id===amazonMappingEditingId);if(!existing){const chk=await supa.from('amazon_sku_mappings').select('id').eq('marketplace_id',payload.marketplace_id).ilike('seller_sku',sku).eq('fulfillment_program',program).eq('inventory_base','BIKEBEAT').limit(1);if(chk.error)throw chk.error;if(chk.data?.length)existing={id:chk.data[0].id};}let result;if(existing)result=await supa.from('amazon_sku_mappings').update(payload).eq('id',existing.id);else result=await supa.from('amazon_sku_mappings').insert(payload);if(result.error)throw result.error;if(status)status.textContent='Asociación guardada. No se modificó inventario.';resetAmazonMappingForm();await loadAmazonMappings();}catch(e){if(status)status.textContent='No se pudo guardar: '+(e.message||e);}}
 async function toggleAmazonMapping(id,active){const status=document.getElementById('amMappingStatus');try{const {error}=await supa.from('amazon_sku_mappings').update({active,updated_at:new Date().toISOString()}).eq('id',id);if(error)throw error;if(status)status.textContent=active?'Asociación activada.':'Asociación desactivada.';await loadAmazonMappings();}catch(e){if(status)status.textContent='No se pudo cambiar el estado: '+(e.message||e);}}
+let amazonInventoryPreviewRows=[];
+function amazonPreviewEscape(v){return String(v??'').replace(/[&<>\"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[ch]));}
+function amazonPreviewComponents(row,field){const list=Array.isArray(row.components)?row.components:[];if(!list.length)return '—';return list.map(c=>String(c.sku||'SKU?')+': '+Number(c[field]||0)).join(' · ');}
+function renderAmazonInventoryPreview(){
+ const out=document.getElementById('amazonPreviewRows');if(!out)return;
+ const q=(document.getElementById('amazonPreviewSearch')?.value||'').trim().toLowerCase();
+ const filter=document.getElementById('amazonPreviewStatusFilter')?.value||'all';
+ const rows=amazonInventoryPreviewRows.filter(r=>[r.seller_sku,r.asin,r.product_sku,r.product_name].some(v=>String(v||'').toLowerCase().includes(q))&&(filter==='all'||r.status===filter));
+ if(!rows.length){out.innerHTML='<p class="muted">No hay resultados con los filtros seleccionados.</p>';return;}
+ const cell=v=>'<td>'+amazonPreviewEscape(v??'—')+'</td>';
+ out.innerHTML='<table class="table" style="min-width:1450px"><thead><tr><th>SKU Amazon</th><th>ASIN</th><th>SKU interno</th><th>Descripción</th><th>Logística</th><th>Stock BIKEBEAT</th><th>Stock ODKL</th><th>Reservas BIKEBEAT</th><th>Reservas ODKL</th><th>Seguridad</th><th>Cantidad calculada</th><th>Estado / motivo</th></tr></thead><tbody>'+
+ rows.map(r=>{
+  const c=(Array.isArray(r.components)&&r.components[0])||{};
+  const fulfillment=({easy_ship:'Easy Ship',seller_flex:'Seller Flex',fba:'FBA',self_ship:'Envío vendedor',any:'Sin clasificar'})[r.fulfillment_program]||r.fulfillment_program||'Desconocida';
+  const vals=r.calculation_type==='individual_sku'?[c.stock_bikebeat,c.stock_odkl,c.reserved_bikebeat,c.reserved_odkl,c.safety_reserve]:null;
+  const stockCells=vals?vals.map(cell).join(''):[cell(amazonPreviewComponents(r,'stock_bikebeat')),cell(amazonPreviewComponents(r,'stock_odkl')),cell(amazonPreviewComponents(r,'reserved_bikebeat')),cell(amazonPreviewComponents(r,'reserved_odkl')),cell('1 por componente')].join('');
+  const label=r.status==='calculated_not_published'?'Calculada - No publicada':'Revisión';
+  const details=(r.reason||'')+(r.publication_note?' · '+r.publication_note:'');
+  return '<tr>'+cell(r.seller_sku)+cell(r.asin)+cell(r.product_sku)+cell(r.product_name)+cell(fulfillment)+stockCells+cell(r.target_quantity===null?'—':r.target_quantity)+cell(label+' · '+details)+'</tr>';
+ }).join('')+'</tbody></table>';
+}
+async function loadAmazonInventoryPreview(){
+ const status=document.getElementById('amazonPreviewStatus'),out=document.getElementById('amazonPreviewRows'),notice=document.getElementById('amazonPreviewNotice');
+ if(activeBaseKey!=='bikebeat'){if(status)status.textContent='Cambia a BIKEBEAT para consultar la vista previa de Amazon.';return;}
+ if(!isAdminSession()){if(status)status.textContent='Acceso exclusivo para administradores.';return;}
+ if(status)status.textContent='Consultando inventario combinado…';if(out)out.innerHTML='';
+ try{
+  const {data:{session},error:sessionError}=await supa.auth.getSession();if(sessionError)throw sessionError;
+  if(!session?.access_token)throw new Error('La sesión no tiene un token válido. Vuelve a iniciar sesión.');
+  const response=await fetch(CFG.url+'/functions/v1/amazon-inventory-preview',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token,'apikey':CFG.key},body:JSON.stringify({mode:'preview'})});
+  const data=await response.json().catch(()=>({error:'Respuesta inválida del servidor'}));
+  if(!response.ok||!data.ok)throw new Error(data.detail||data.error||('HTTP '+response.status));
+  amazonInventoryPreviewRows=Array.isArray(data.results)?data.results:[];
+  document.getElementById('apTotal').textContent=Number(data.mappings_checked||0).toLocaleString('es-MX');
+  document.getElementById('apEligible').textContent=Number(data.calculated_seller_fulfilled_candidates||0).toLocaleString('es-MX');
+  document.getElementById('apReview').textContent=Number(data.excluded_or_review||0).toLocaleString('es-MX');
+  if(notice)notice.textContent='Consulta correcta · '+new Date().toLocaleString('es-MX')+' · Modo de solo lectura.';
+  if(status)status.textContent='Se recibieron '+amazonInventoryPreviewRows.length+' asociaciones. Ningún dato fue modificado.';
+  renderAmazonInventoryPreview();
+ }catch(e){amazonInventoryPreviewRows=[];if(status)status.textContent='No se pudo consultar la vista previa: '+(e.message||e);if(out)out.innerHTML='<p class="muted">Verifica que la Edge Function amazon-inventory-preview esté activa, las credenciales de ODKL estén configuradas y tu usuario tenga rol administrador.</p>';}
+}
+function exportAmazonInventoryPreview(){
+ if(!amazonInventoryPreviewRows.length){const st=document.getElementById('amazonPreviewStatus');if(st)st.textContent='Primero consulta la vista previa.';return;}
+ const rows=amazonInventoryPreviewRows.map(r=>({'SKU Amazon':r.seller_sku,'ASIN':r.asin,'SKU interno':r.product_sku,'Descripción':r.product_name,'Logística':r.fulfillment_program,'Tipo cálculo':r.calculation_type,'Componentes':(r.components||[]).map(c=>c.sku+' (BB '+c.stock_bikebeat+', ODKL '+c.stock_odkl+', Reservas BB '+c.reserved_bikebeat+', Reservas ODKL '+c.reserved_odkl+', Seguridad '+c.safety_reserve+')').join(' | '),'Cantidad calculada':r.target_quantity,'Estado':r.status,'Motivo':r.reason,'Elegibilidad':r.publication_eligibility,'Nota':r.publication_note}));
+ const ws=XLSX.utils.json_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Vista previa Amazon');XLSX.writeFile(wb,'Amazon_Inventario_Vista_Previa_'+localDate()+'.xlsx');
+}
 </script>
 </body></html>
