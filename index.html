@@ -173,7 +173,14 @@
 <button type="button" onclick="loadAmazonInventoryPreview()">Consultar / actualizar</button>
 <button type="button" class="ghost" onclick="exportAmazonInventoryPreview()">Exportar Excel</button></div>
 <div id="amazonPreviewStatus" class="muted" role="status" style="margin-top:10px"></div>
-<div id="amazonPreviewRows" style="overflow-x:auto;margin-top:12px"></div></section>
+<div id="amazonPreviewRows" style="overflow-x:auto;margin-top:12px"></div>
+<hr style="margin:24px 0">
+<h3>Productos y kits sin asociación Amazon</h3>
+<p class="muted">Catálogo interno activo de BIKEBEAT y ODKL que todavía no tiene una asociación Amazon activa. Se muestra su disponibilidad calculada, pero no se inventan ASIN ni SKU de vendedor y no se crea ninguna publicación.</p>
+<div class="muted" id="amazonUnmappedCount">Productos sin asociación: -</div>
+<label>Buscar en productos sin asociación<input id="amazonUnmappedSearch" type="search" placeholder="SKU o descripción..." oninput="renderAmazonUnmappedProducts()"></label>
+<div id="amazonUnmappedRows" style="overflow-x:auto;margin-top:12px"></div>
+</section>
 <section id="cancellations" class="card hidden app-screen">
 <div class="screen-nav"><button type="button" class="ghost" onclick="tab('dashboard')">← Dashboard</button></div>
 <h2>Cancelaciones</h2>
@@ -3057,6 +3064,7 @@ function editAmazonMapping(id){const r=amazonMappingRows.find(x=>x.id===id);if(!
 async function saveAmazonMapping(){const status=document.getElementById('amMappingStatus');if(activeBaseKey!=='bikebeat'){if(status)status.textContent='Cambia a la base BIKEBEAT para guardar asociaciones.';return;}const sku=document.getElementById('amSellerSku')?.value.trim(),program=document.getElementById('amProgram')?.value||'any';if(!sku){if(status)status.textContent='Captura el SKU de Amazon.';return;}if(!amazonMappingSelectedProduct?.id){if(status)status.textContent='Selecciona un producto de BIKEBEAT.';return;}if(status)status.textContent='Guardando…';try{const payload={marketplace_id:'A1AM78C64UM0Y8',seller_sku:sku,asin:document.getElementById('amAsin')?.value.trim()||null,product_id:amazonMappingSelectedProduct.id,inventory_base:'BIKEBEAT',mapping_source:'manual',notes:document.getElementById('amNotes')?.value.trim()||null,fulfillment_program:program,active:true,updated_at:new Date().toISOString()};let existing=amazonMappingRows.find(r=>r.id===amazonMappingEditingId);if(!existing){const chk=await supa.from('amazon_sku_mappings').select('id').eq('marketplace_id',payload.marketplace_id).ilike('seller_sku',sku).eq('fulfillment_program',program).eq('inventory_base','BIKEBEAT').limit(1);if(chk.error)throw chk.error;if(chk.data?.length)existing={id:chk.data[0].id};}let result;if(existing)result=await supa.from('amazon_sku_mappings').update(payload).eq('id',existing.id);else result=await supa.from('amazon_sku_mappings').insert(payload);if(result.error)throw result.error;if(status)status.textContent='Asociación guardada. No se modificó inventario.';resetAmazonMappingForm();await loadAmazonMappings();}catch(e){if(status)status.textContent='No se pudo guardar: '+(e.message||e);}}
 async function toggleAmazonMapping(id,active){const status=document.getElementById('amMappingStatus');try{const {error}=await supa.from('amazon_sku_mappings').update({active,updated_at:new Date().toISOString()}).eq('id',id);if(error)throw error;if(status)status.textContent=active?'Asociación activada.':'Asociación desactivada.';await loadAmazonMappings();}catch(e){if(status)status.textContent='No se pudo cambiar el estado: '+(e.message||e);}}
 let amazonInventoryPreviewRows=[];
+let amazonUnmappedProducts=[];
 function amazonPreviewEscape(v){return String(v??'').replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));}
 function amazonPreviewComponents(row,field){const list=Array.isArray(row.components)?row.components:[];if(!list.length)return '—';return list.map(c=>String(c.sku||'SKU?')+': '+Number(c[field]||0)).join(' · ');}
 function renderAmazonInventoryPreview(){
@@ -3089,18 +3097,30 @@ async function loadAmazonInventoryPreview(){
   const data=await response.json().catch(()=>({error:'Respuesta inválida del servidor'}));
   if(!response.ok||!data.ok)throw new Error(data.detail||data.error||('HTTP '+response.status));
   amazonInventoryPreviewRows=Array.isArray(data.results)?data.results:[];
+  amazonUnmappedProducts=Array.isArray(data.unmapped_products)?data.unmapped_products:[];
   document.getElementById('apTotal').textContent=Number(data.mappings_checked||0).toLocaleString('es-MX');
   document.getElementById('apEligible').textContent=Number(data.calculated_seller_fulfilled_candidates||0).toLocaleString('es-MX');
   document.getElementById('apReview').textContent=Number(data.excluded_or_review||0).toLocaleString('es-MX');
   if(notice)notice.textContent='Consulta correcta · '+new Date().toLocaleString('es-MX')+' · Modo de solo lectura.';
   if(status)status.textContent='Se recibieron '+amazonInventoryPreviewRows.length+' asociaciones. Ningún dato fue modificado.';
   renderAmazonInventoryPreview();
- }catch(e){amazonInventoryPreviewRows=[];if(status)status.textContent='No se pudo consultar la vista previa: '+(e.message||e);if(out)out.innerHTML='<p class="muted">Verifica que la Edge Function amazon-inventory-preview esté activa, las credenciales de ODKL estén configuradas y tu usuario tenga rol administrador.</p>';}
+  renderAmazonUnmappedProducts();
+  const unmappedCount=document.getElementById('amazonUnmappedCount');if(unmappedCount)unmappedCount.textContent='Productos y kits sin asociación activa: '+amazonUnmappedProducts.length;
+ }catch(e){amazonInventoryPreviewRows=[];amazonUnmappedProducts=[];if(status)status.textContent='No se pudo consultar la vista previa: '+(e.message||e);if(out)out.innerHTML='<p class="muted">Verifica que la Edge Function amazon-inventory-preview esté activa, las credenciales de ODKL estén configuradas y tu usuario tenga rol administrador.</p>';}
 }
 function exportAmazonInventoryPreview(){
  if(!amazonInventoryPreviewRows.length){const st=document.getElementById('amazonPreviewStatus');if(st)st.textContent='Primero consulta la vista previa.';return;}
  const rows=amazonInventoryPreviewRows.map(r=>({'SKU Amazon':r.seller_sku,'ASIN':r.asin,'SKU interno':r.product_sku,'Descripción':r.product_name,'Logística':r.fulfillment_program,'Tipo cálculo':r.calculation_type,'Componentes':(r.components||[]).map(c=>c.sku+' (BB '+c.stock_bikebeat+', ODKL '+c.stock_odkl+', Reservas BB '+c.reserved_bikebeat+', Reservas ODKL '+c.reserved_odkl+', Seguridad '+c.safety_reserve+')').join(' | '),'Cantidad calculada':r.target_quantity,'Estado':r.status,'Motivo':r.reason,'Elegibilidad':r.publication_eligibility,'Nota':r.publication_note}));
  const ws=XLSX.utils.json_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Vista previa Amazon');XLSX.writeFile(wb,'Amazon_Inventario_Vista_Previa_'+localDate()+'.xlsx');
+}
+function renderAmazonUnmappedProducts(){
+ const out=document.getElementById('amazonUnmappedRows');if(!out)return;
+ const q=(document.getElementById('amazonUnmappedSearch')?.value||'').trim().toLowerCase();
+ const rows=amazonUnmappedProducts.filter(r=>[r.product_sku,r.product_name,r.source_base].some(v=>String(v||'').toLowerCase().includes(q)));
+ if(!rows.length){out.innerHTML='<p class="muted">No hay productos con ese filtro.</p>';return;}
+ const cell=v=>'<td>'+amazonPreviewEscape(v??'—')+'</td>';
+ out.innerHTML='<table class="table" style="min-width:1150px"><thead><tr><th>SKU interno</th><th>Descripción</th><th>Base del registro</th><th>Tipo de cálculo</th><th>Stock BIKEBEAT (componentes)</th><th>Stock ODKL (componentes)</th><th>Reservas BIKEBEAT</th><th>Reservas ODKL</th><th>Seguridad</th><th>Disponibilidad calculada</th><th>Estado</th></tr></thead><tbody>'+
+ rows.map(r=>{const comps=r.components||[];const comp=(field)=>comps.map(c=>c.sku+': '+Number(c[field]||0)).join(' · ')||'—';const label=r.calculation_type==='recipe_kit'?'Kit por receta':r.calculation_type==='QTY_SKU_kit'?'Kit QTY/SKU':'Producto individual';return '<tr>'+cell(r.product_sku)+cell(r.product_name)+cell(r.source_base)+cell(label)+cell(comp('stock_bikebeat'))+cell(comp('stock_odkl'))+cell(comp('reserved_bikebeat'))+cell(comp('reserved_odkl'))+cell('1 por componente/SKU')+cell(r.target_quantity===null?'Revisar':r.target_quantity)+cell(r.status==='review'?'Revisión':'Sin asociación Amazon')+'</tr>';}).join('')+'</tbody></table>';
 }
 </script>
 </body></html>
