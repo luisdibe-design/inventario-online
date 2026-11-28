@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
-<link rel="manifest" href="manifest.webmanifest?v=85">
+<link rel="manifest" href="manifest.webmanifest?v=118">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" type="image/png" sizes="64x64" href="favicon-64-v2.png">
 <link rel="apple-touch-icon" sizes="192x192" href="icon-192-v2.png">
@@ -1321,6 +1321,82 @@ function movementDateBounds(date){
 }
 
 
+// V118: detalle individual de nuevas salidas automáticas Amazon Easy Ship.
+// El corte evita incorporar pedidos/movimientos históricos a esta vista nueva.
+const AMAZON_EASY_SHIP_DETAIL_CUTOFF='2026-11-28T02:50:00.000Z';
+function formatAmazonMovementDate(value,includeTime=true){
+  if(!value)return 'No disponible';
+  const d=new Date(value);if(!Number.isFinite(d.getTime()))return 'No disponible';
+  const options=includeTime?{dateStyle:'medium',timeStyle:'short'}:{dateStyle:'medium'};
+  return new Intl.DateTimeFormat('es-MX',{timeZone:'America/Mexico_City',...options}).format(d);
+}
+function formatAmazonDateWindow(windowValue){
+  if(!windowValue)return 'Amazon aún no informa esta fecha';
+  const from=windowValue.earliestDateTime||windowValue.earliest||null;
+  const to=windowValue.latestDateTime||windowValue.latest||null;
+  if(from&&to){
+    const a=formatAmazonMovementDate(from,false),b=formatAmazonMovementDate(to,false);
+    return a===b?a:a+' – '+b;
+  }
+  if(from||to)return formatAmazonMovementDate(from||to,false);
+  return 'Amazon aún no informa esta fecha';
+}
+async function appendNewAmazonEasyShipMovementDetails(out,movementRows,productMap){
+  const cutoff=Date.parse(AMAZON_EASY_SHIP_DETAIL_CUTOFF);
+  const rows=(movementRows||[]).filter(m=>
+    m.type==='salida' && m.channel==='Amazon' &&
+    String(m.reference||'').startsWith('AMZ-') &&
+    /easy[\s_-]*ship/i.test(String(m.notes||'')) &&
+    Number.isFinite(Date.parse(m.created_at||'')) && Date.parse(m.created_at)>=cutoff
+  );
+  if(!rows.length)return;
+  const orderIds=[...new Set(rows.map(m=>m.order_ref).filter(Boolean))];
+  if(!orderIds.length)return;
+  const orderMap=new Map(),itemMap=new Map();
+  for(let i=0;i<orderIds.length;i+=100){
+    const batch=orderIds.slice(i,i+100);
+    const [ordersResult,itemsResult]=await Promise.all([
+      supa.from('amazon_orders').select('amazon_order_id,purchase_date,last_update_date,order_status,raw_order').eq('inventory_base','BIKEBEAT').in('amazon_order_id',batch),
+      supa.from('amazon_order_items').select('amazon_order_id,seller_sku,asin,product_id,quantity_ordered').in('amazon_order_id',batch)
+    ]);
+    if(ordersResult.error)throw ordersResult.error;
+    if(itemsResult.error)throw itemsResult.error;
+    (ordersResult.data||[]).forEach(o=>orderMap.set(o.amazon_order_id,o));
+    for(const item of(itemsResult.data||[])){const list=itemMap.get(item.amazon_order_id)||[];list.push(item);itemMap.set(item.amazon_order_id,list);}
+  }
+  const byOrder=new Map();
+  for(const movement of rows){const list=byOrder.get(movement.order_ref)||[];list.push(movement);byOrder.set(movement.order_ref,list);}
+  const cards=[...byOrder.entries()].map(([orderId,orderMovements])=>{
+    const order=orderMap.get(orderId)||{},raw=order.raw_order||{},fulfillment=raw.fulfillment||{};
+    const items=itemMap.get(orderId)||[];
+    const lines=orderMovements.map(m=>{
+      const product=productMap[m.product_id]||{};
+      const item=items.find(x=>x.product_id&&x.product_id===m.product_id)||items[0]||{};
+      const skuFromNote=String(m.notes||'').match(/SKU Amazon\s+([^;,.\s]+)/i);
+      const asinFromNote=String(m.notes||'').match(/ASIN\s+([^;,.\s]+)/i);
+      return '<div class="editbox" style="margin:7px 0;padding:9px">'+
+        '<b>'+esc(product.name||'Producto')+'</b>'+
+        '<div class="muted">SKU BIKEBEAT: '+esc(product.sku||'—')+' · SKU Amazon: '+esc(item.seller_sku||skuFromNote?.[1]||'—')+'</div>'+
+        '<div class="muted">ASIN: '+esc(item.asin||asinFromNote?.[1]||'—')+' · Cantidad descontada: <b>'+Number(m.quantity||0)+'</b></div>'+
+      '</div>';
+    }).join('');
+    const movementDate=orderMovements.map(m=>m.movement_date).filter(Boolean).sort().map(v=>formatAmazonMovementDate(v)).join(' · ');
+    return '<article class="card" style="margin:9px 0;padding:11px;border:1px solid var(--line)">'+
+      '<div style="font-weight:800">Pedido Amazon: '+esc(orderId)+'</div>'+
+      '<div class="muted">Estado: <b>'+esc(order.order_status||fulfillment.fulfillmentStatus||'No disponible')+'</b> · Modalidad: Easy Ship</div>'+
+      '<div class="muted" style="margin-top:7px">Fecha de compra: <b>'+esc(formatAmazonMovementDate(order.purchase_date))+'</b></div>'+
+      '<div class="muted">Fecha de creación del pedido: <b>'+esc(formatAmazonMovementDate(raw.createdTime))+'</b></div>'+
+      '<div class="muted">Fecha de salida del inventario: <b>'+esc(movementDate||'No disponible')+'</b></div>'+
+      '<div class="muted">Fecha límite para enviar: <b>'+esc(formatAmazonDateWindow(fulfillment.shipByWindow))+'</b></div>'+
+      '<div class="muted">Entrega estimada por Amazon: <b>'+esc(formatAmazonDateWindow(fulfillment.deliverByWindow||fulfillment.deliveryWindow))+'</b></div>'+
+      (order.last_update_date?'<div class="muted">Última actualización Amazon: '+esc(formatAmazonMovementDate(order.last_update_date))+'</div>':'')+
+      '<div style="margin-top:8px"><b>Productos del pedido</b>'+lines+'</div>'+
+    '</article>';
+  }).join('');
+  out.innerHTML+='<details open style="margin-top:12px"><summary><b>Pedidos Amazon Easy Ship · nuevas salidas automáticas</b> · '+byOrder.size+' pedido(s) · '+rows.reduce((n,m)=>n+Number(m.quantity||0),0)+' pieza(s)</summary><div style="margin-top:8px">'+cards+'</div><p class="muted">Se muestran únicamente salidas automáticas nuevas. Las fechas de entrega y envío son ventanas estimadas informadas por Amazon, no confirmaciones de entrega real. El historial anterior permanece sin cambios.</p></details>';
+}
+
+
 async function loadSelectedMovementProcessed(){
   const out=document.getElementById('movementProcessedOut');
   if(!out||!moveContext?.partyId)return;
@@ -1347,6 +1423,7 @@ async function loadSelectedMovementProcessed(){
   const pieces=arr.reduce((a,x)=>a+x.qty,0);
   const totalAmount=arr.reduce((sum,x)=>sum+Number(x.total||0),0);
   out.innerHTML='<details open><summary><b>Movimientos registrados</b> · '+arr.length+' producto(s) · '+pieces+' pieza(s)'+(isAdminSession()?' · Monto total: '+moneyMX(totalAmount):'')+'</summary><div class="movement-processed-list">'+arr.map(x=>{const pid=escJs(x.id);return `<div class="card saved-move-item" style="margin:8px 0;padding:10px"><div class="saved-move-main"><div style="min-width:0"><div style="font-weight:700">${esc(x.p.name||'Producto')}</div><div class="muted" style="margin-top:2px">SKU: ${esc(x.p.sku||'—')} · Código: ${esc(x.p.barcode||'—')}</div>${isAdminSession()?`<div class="muted" style="margin-top:5px">Valor unitario: ${moneyMX(x.qty?x.total/x.qty:0)} · Total por ${x.qty} pieza(s): <b>${moneyMX(x.total)}</b></div>`:''}</div><div class="saved-move-qty"><span class="muted">Piezas</span><b>${x.qty}</b>${x.protected?'<span class="muted" title="Movimiento documental; no modifica existencias">Registro protegido</span>':`<button type="button" class="ghost saved-adjust-btn" onclick="toggleSavedAdjust('${pid}',${x.qty},'setup-')">⚙️ Ajustar</button>`}</div></div><div id="setup-adjust-${pid}" class="hidden editbox" style="margin-top:8px"><div class="muted">Cantidad actualmente grabada: <b>${x.qty}</b></div><div class="row" style="align-items:center;margin-top:8px"><button type="button" class="ghost" onclick="changeSavedAdjust('${pid}',-1,'setup-')">−</button><input id="setup-adjustQty-${pid}" type="number" min="0" step="1" value="${x.qty}" style="text-align:center;font-size:18px;font-weight:700"><button type="button" class="ghost" onclick="changeSavedAdjust('${pid}',1,'setup-')">+</button></div><div class="row" style="margin-top:8px"><button type="button" onclick="saveSavedAdjust('${pid}',${x.qty},'setup-')">💾 Guardar</button><button type="button" class="ghost" onclick="toggleSavedAdjust('${pid}',${x.qty},'setup-')">Cancelar</button></div><div id="setup-adjustMsg-${pid}" class="muted" style="margin-top:5px"></div></div></div>`}).join('')+'</div></details>';
+  if(requestContext.type==='salida' && activeBaseKey==='bikebeat' && /amazon\s+easy/i.test(String(moveContext.partyName||''))){try{await appendNewAmazonEasyShipMovementDetails(out,data,pmap)}catch(e){console.warn('AMAZON_EASY_SHIP_MOVEMENT_DETAILS',e);out.innerHTML+='<div class="status">No se pudieron consultar las fechas del pedido Amazon: '+esc(e?.message||String(e))+'</div>'}}
 }
 
 async function selectMovementParty(id,name){

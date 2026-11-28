@@ -1391,69 +1391,9 @@ async function saveMoveBatch(){
 }
 function clearPendingMove(){if(!pendingLines.length)return; if(!confirm('¿Limpiar todos los productos pendientes?'))return;pendingLines=[];pendingConfirmProduct=null;document.getElementById('qtyConfirm').classList.add('hidden');document.getElementById('selectedProduct').classList.add('hidden');renderPendingLines();document.getElementById('moveMsg').textContent='Captura limpiada.'}
 
-
-function formatAmazonMovementDate(value,includeTime=true){
-  if(!value)return '—';
-  const d=new Date(value);if(!Number.isFinite(d.getTime()))return '—';
-  return new Intl.DateTimeFormat('es-MX',{timeZone:'America/Mexico_City',dateStyle:'short',...(includeTime?{timeStyle:'short'}:{})}).format(d);
-}
-function amazonEstimatedDeliveryWindow(rawOrder){
-  const w=rawOrder?.fulfillment?.deliverByWindow||rawOrder?.fulfillment?.deliveryWindow||null;
-  if(!w)return 'Amazon aún no informa fecha estimada';
-  const from=w.earliestDateTime||w.earliest||null,to=w.latestDateTime||w.latest||null;
-  if(from&&to)return formatAmazonMovementDate(from,false)+' – '+formatAmazonMovementDate(to,false);
-  if(from||to)return formatAmazonMovementDate(from||to,false);
-  return 'Amazon aún no informa fecha estimada';
-}
-async function renderAmazonEasyShipMovementRows(out,day,type){
-  if(type!=='salida')return;
-  const bounds=movementDateBounds(day);
-  const {data,error}=await supa.from('movements')
-    .select('id,product_id,quantity,movement_date,order_ref,reference,channel,notes')
-    .eq('type','salida').eq('channel','Amazon')
-    .gte('movement_date',bounds.start).lt('movement_date',bounds.end)
-    .like('reference','AMZ-%').order('movement_date',{ascending:false}).limit(3000);
-  if(error){out.innerHTML+='<div class="status">No se pudieron cargar las salidas Amazon Easy Ship: '+esc(error.message)+'</div>';return}
-  const rows=(data||[]).filter(m=>/easy[\s_-]*ship/i.test(String(m.notes||'')));
-  if(!rows.length)return;
-  const orderIds=[...new Set(rows.map(m=>m.order_ref).filter(Boolean))];
-  const orderMap={};
-  for(let i=0;i<orderIds.length;i+=100){
-    const batch=orderIds.slice(i,i+100);
-    const r=await supa.from('amazon_orders')
-      .select('amazon_order_id,purchase_date,last_update_date,order_status,raw_order')
-      .eq('inventory_base','BIKEBEAT').in('amazon_order_id',batch);
-    if(r.error){out.innerHTML+='<div class="status">No se pudieron consultar las fechas de los pedidos Amazon: '+esc(r.error.message)+'</div>';return}
-    (r.data||[]).forEach(o=>orderMap[o.amazon_order_id]=o);
-  }
-  const productIds=[...new Set(rows.map(m=>m.product_id).filter(Boolean))];
-  const productMap={};
-  for(let i=0;i<productIds.length;i+=200){
-    const r=await supa.from('products').select('id,name,sku').in('id',productIds.slice(i,i+200));
-    if(r.error){out.innerHTML+='<div class="status">No se pudieron consultar los productos Amazon: '+esc(r.error.message)+'</div>';return}
-    (r.data||[]).forEach(p=>productMap[p.id]=p);
-  }
-  const cards=rows.map(m=>{
-    const order=orderMap[m.order_ref]||{},product=productMap[m.product_id]||{};
-    const estimate=amazonEstimatedDeliveryWindow(order.raw_order);
-    return '<div class="card" style="margin:8px 0;padding:11px">'+
-      '<div style="font-weight:800">Pedido Amazon: '+esc(m.order_ref||'No disponible')+'</div>'+
-      '<div style="font-weight:700;margin-top:4px">'+esc(product.name||'Producto')+'</div>'+
-      '<div class="muted">SKU: '+esc(product.sku||'—')+' · Cantidad: <b>'+Number(m.quantity||0)+'</b></div>'+
-      '<div class="muted" style="margin-top:7px">Fecha de compra / pedido: <b>'+esc(formatAmazonMovementDate(order.purchase_date))+'</b></div>'+
-      '<div class="muted">Fecha de salida del inventario: <b>'+esc(formatAmazonMovementDate(m.movement_date))+'</b></div>'+
-      '<div class="muted">Entrega estimada por Amazon: <b>'+esc(estimate)+'</b></div>'+
-      '<div class="muted">Estado del pedido: '+esc(order.order_status||'Sin estado')+'</div>'+
-      (order.last_update_date?'<div class="muted">Última actualización Amazon: '+esc(formatAmazonMovementDate(order.last_update_date))+'</div>':'')+
-    '</div>';
-  }).join('');
-  out.innerHTML+='<details open style="margin-top:12px"><summary><b>Amazon Easy Ship · BIKEBEAT</b> · '+rows.length+' salida(s) · '+rows.reduce((n,m)=>n+Number(m.quantity||0),0)+' pieza(s)</summary><div style="margin-top:8px">'+cards+'</div><div class="muted">La fecha de entrega mostrada es la ventana estimada que informa Amazon; no se presenta como fecha real de entrega.</div></details>';
-}
-
 async function renderSystemMovementBlock(containerId,date,type){
   const out=document.getElementById(containerId);if(!out)return;
   const day=String(date||localDate()).slice(0,10),bounds=movementDateBounds(day);
-  await renderAmazonEasyShipMovementRows(out,day,type);
   const {data,error}=await supa.from('movements')
     .select('id,product_id,type,quantity,unit_price,movement_date,reference,channel,notes')
     .eq('type',type).gte('movement_date',bounds.start).lt('movement_date',bounds.end)
@@ -1476,7 +1416,6 @@ async function renderSystemMovementBlock(containerId,date,type){
   const pieces=arr.reduce((a,x)=>a+x.qty,0),amount=arr.reduce((a,x)=>a+x.total,0);
   out.innerHTML += '<details open style="margin-top:12px"><summary><b>Mercado Libre Full y transferencias entre bases</b> · '+esc(day)+' · '+arr.length+' registro(s) · '+pieces+' pieza(s)'+(isAdminSession()?' · '+moneyMX(amount):'')+'</summary><div style="margin-top:8px">'+arr.map(g=>'<div class="card" style="margin:7px 0;padding:10px"><b>'+esc(g.label)+'</b><div style="font-weight:700;margin-top:3px">'+esc(g.product.name||'Producto')+'</div><div class="muted">SKU: '+esc(g.product.sku||'—')+' · '+g.qty+' pieza(s)'+(isAdminSession()?' · Unitario: '+moneyMX(g.qty?g.total/g.qty:0)+' · Total: '+moneyMX(g.total):'')+'</div></div>').join('')+'</div></details>';
 }
-
 
 async function loadSavedMoves(){
   if(!moveContext?.partyId){await renderSystemMovementBlock('savedMovesOut',localDate(),document.getElementById('type')?.value||'salida');return;}
