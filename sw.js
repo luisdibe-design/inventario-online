@@ -1,4 +1,4 @@
-const CACHE_NAME='inventario-online-v102';
+const CACHE_NAME='inventario-online-v102-amazon-orders';
 const APP_SHELL = [
   "./",
   "./index.html",
