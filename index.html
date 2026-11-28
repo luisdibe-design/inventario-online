@@ -1407,7 +1407,7 @@ async function loadSelectedMovementProcessed(){
   const field=requestContext.type==='entrada'?'supplier_id':'customer_id';
   const date=requestContext.date;
   const bounds=movementDateBounds(date);
-  const {data,error}=await queryMovementsForSelectedDay(date,requestContext.type,field,requestContext.partyId,'id,product_id,quantity,unit_price,order_ref,reference,channel,notes,created_at,movement_date',moveContext.partyName);
+  const {data,error}=await queryMovementsForSelectedDay(date,requestContext.type,field,requestContext.partyId,'id,type,product_id,quantity,unit_price,order_ref,reference,channel,notes,created_at,movement_date',moveContext.partyName);
   if(requestSeq!==window.__movementProcessedRequestSeq)return;
   if(error){out.innerHTML='<div class="status" style="color:#ff9aa7">No se pudo cargar la lista registrada: '+esc(error.message)+'</div>';return}
   const ids=[...new Set((data||[]).map(x=>x.product_id).filter(Boolean))];
