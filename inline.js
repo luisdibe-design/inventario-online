@@ -1414,7 +1414,7 @@ async function renderAmazonEasyShipMovementRows(out,day,type){
     .gte('movement_date',bounds.start).lt('movement_date',bounds.end)
     .like('reference','AMZ-%').order('movement_date',{ascending:false}).limit(3000);
   if(error){out.innerHTML+='<div class="status">No se pudieron cargar las salidas Amazon Easy Ship: '+esc(error.message)+'</div>';return}
-  const rows=(data||[]).filter(m=>/easy_ship/i.test(String(m.notes||'')));
+  const rows=(data||[]).filter(m=>/easy[\s_-]*ship/i.test(String(m.notes||'')));
   if(!rows.length)return;
   const orderIds=[...new Set(rows.map(m=>m.order_ref).filter(Boolean))];
   const orderMap={};
