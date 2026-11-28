@@ -1332,7 +1332,9 @@ function formatAmazonMovementDate(value,includeTime=true){
 }
 function formatAmazonMoney(value){
   const amount=Number(value||0);
-  return '
+  return '$'+amount.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function formatAmazonDateWindow(windowValue){
   if(!windowValue)return 'Amazon aún no informa esta fecha';
   const from=windowValue.earliestDateTime||windowValue.earliest||null;
   const to=windowValue.latestDateTime||windowValue.latest||null;
